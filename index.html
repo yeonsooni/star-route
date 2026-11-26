@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<meta name="theme-color" content="#0a090c">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="성간 개척">
+<meta name="format-detection" content="telephone=no">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="img/icon-180.png">
+<title>성간 개척 일지 — 함장의 항해</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 16 16%22%3E%3Cpath d=%22M8 1l3 14-3-3-3 3z%22 fill=%22%23ff9a4a%22/%3E%3C/svg%3E">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div id="app">
+  <div id="bgart" aria-hidden="true"><div class="l"></div><div class="l"></div><div class="veil"></div></div>
+  <header id="top"></header>
+  <div id="body">
+    <div id="docked">
+      <nav id="side"></nav>
+      <main id="main"></main>
+    </div>
+    <div id="space" hidden>
+      <canvas id="cv"></canvas>
+      <div id="targets"></div>
+      <aside id="overview" class="lpanel"></aside>
+      <div id="slog"></div>
+      <div id="hud"></div>
+      <div id="mobtools" class="mobonly"><button class="sm" id="mobMove" data-a="moveMode" title="누른 뒤 화면을 톡 누르면 그곳으로 이동">이동</button><button class="sm" data-a="recenter" title="내 함선을 가운데로">가운데</button><button class="sm" id="mobHud" data-a="hudToggle">접기</button></div>
+      <div id="warpov" hidden></div>
+      <div id="fade"></div><div id="flash"></div>
+      <div id="objective"></div>
+      <div id="crew" hidden></div>
+    </div>
+  </div>
+  <div id="modal" hidden></div>
+  <div id="toast"></div>
+  <div id="tutHi" hidden></div><div id="evcard" hidden></div><div id="tutArrow" hidden></div><div id="tutCard" hidden></div><div id="unlockBan" hidden></div>
+</div>
+<script src="js/data.js"></script>
+<script src="js/core.js"></script>
+<script src="js/space.js"></script>
+<script src="js/art.js"></script>
+<script src="js/sprites.js"></script>
+<script src="js/ui.js"></script>
+<script>
+// 오프라인 사용(앱처럼 설치) — 인터넷 주소(https)에서 열 때만 켜져요. 파일로 열면(file://) 아무 일도 안 해요.
+if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) navigator.serviceWorker.register('sw.js').catch(function () {});
+</script>
+</body>
+</html>
