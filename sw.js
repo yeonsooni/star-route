@@ -1,6 +1,6 @@
 // 성간 개척 일지 — 오프라인 저장소 (인터넷 주소로 열었을 때만 쓰여요)
 // 파일을 바꾸면 VERSION 숫자를 올려 주세요. 그래야 새 파일로 바뀝니다.
-const VERSION = 'sgl-v8-1';
+const VERSION = 'sgl-v9-1';
 const FILES = [
   './',
   'index.html',
@@ -42,7 +42,11 @@ const FILES = [
   'img/sp/star.jpg',
   'img/sp/station.webp',
   'img/sp/void-large.webp',
-  'img/sp/void-small.webp'
+  'img/sp/void-small.webp',
+  'img/space/sbg-bluenebula.webp',
+  'img/space/sbg-galaxy.webp',
+  'img/space/sbg-milkyway.webp',
+  'img/space/sbg-rednebula.webp'
 ];
 self.addEventListener('install', (e) => { e.waitUntil(caches.open(VERSION).then(c => c.addAll(FILES)).then(() => self.skipWaiting())); });
 self.addEventListener('activate', (e) => { e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== VERSION).map(k => caches.delete(k)))).then(() => self.clients.claim())); });

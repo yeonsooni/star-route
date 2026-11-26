@@ -60,4 +60,24 @@
     const im = IMG.gate; if (!im) return old.gate(c, x, y, R, t);
     const D = R * 2.3; c.save(); c.translate(x, y); c.rotate((t || 0) * 0.05); c.drawImage(im, -D / 2, -D / 2, D, D); c.restore();
   };
+  // ---- v9: 성계마다 다른 먼 우주 배경(성운·은하 사진풍, 어둡게) + 회절 빛갈래가 있는 밝은 별 ----
+  const BG = ['galaxy', 'rednebula', 'bluenebula', 'milkyway']; const BGI = Art.BGI = {};
+  if (typeof Image !== 'undefined') BG.forEach(n => { const im = new Image(); im.onload = () => { BGI[n] = im; }; im.src = `img/space/sbg-${n}.webp`; });
+  Art.spaceBgReady = () => BG.every(n => BGI[n]);
+  Art.spaceBgName = (sys) => BG[Math.abs(typeof G.hash === 'function' ? G.hash('bg' + sys) : Number(sys) || 0) % BG.length];
+  // ox, oy: 패럴랙스(화면 px). 배경은 화면보다 25% 크게 그려 두고 그 안에서만 살짝 움직여요.
+  Art.drawSpaceBg = (c, W, H, sys, ox, oy, alpha) => {
+    const im = BGI[Art.spaceBgName(sys)]; if (!im) return false;
+    const S = Math.max(W, H) * 1.25; const mx = (S - W) / 2, my = (S - H) / 2;
+    const x = -mx + Math.max(-mx, Math.min(mx, ox)), y = -my + Math.max(-my, Math.min(my, oy));
+    c.save(); c.globalAlpha = alpha == null ? 1 : alpha; c.drawImage(im, x, y, S, S); c.restore(); return true;
+  };
+  // 밝은 별: 작은 빛 + 십자 빛갈래(회절 스파이크)
+  Art.drawSpikeStar = (c, x, y, r, col, a) => {
+    c.save(); c.globalCompositeOperation = 'lighter'; c.globalAlpha = a;
+    const g = c.createRadialGradient(x, y, 0, x, y, r * 3); g.addColorStop(0, col); g.addColorStop(1, 'rgba(0,0,0,0)'); c.fillStyle = g; c.fillRect(x - r * 3, y - r * 3, r * 6, r * 6);
+    const L = r * 9; c.strokeStyle = col; c.lineWidth = Math.max(0.6, r * 0.28);
+    c.globalAlpha = a * 0.55; c.beginPath(); c.moveTo(x - L, y); c.lineTo(x + L, y); c.moveTo(x, y - L); c.lineTo(x, y + L); c.stroke();
+    c.restore();
+  };
 })(window.G);

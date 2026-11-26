@@ -417,13 +417,13 @@
       <textarea id="codebox" class="codebox" rows="3" placeholder="여기에 이어하기 링크나 코드를 붙여넣으세요" spellcheck="false" autocomplete="off"></textarea>
       <div class="row" style="margin-top:6px"><button data-a="copyCode">긴 저장 코드 복사</button><button data-a="pasteCode">코드로 불러오기</button><button data-a="shareFile">파일로 공유·저장</button></div>
       <h3 style="margin-top:18px">함교 신호음</h3><div class="row"><button data-a="toggleSound" class="${S.settings && S.settings.sound === false ? '' : 'pri'}">${S.settings && S.settings.sound === false ? '신호음 꺼짐 — 켜기' : '신호음 켜짐 — 끄기'}</button></div>
-      <h3 style="margin-top:18px">튜토리얼</h3><div class="row">${S.tut && !S.tut.done ? '<button data-a="tutSkip">튜토리얼 건너뛰기</button>' : '<button class="pri" data-a="tutRestart">튜토리얼 다시 보기</button>'}</div>
+      <h3 style="margin-top:18px">튜토리얼</h3><div class="row">${S.tut && !S.tut.done ? '<button data-a="tutSkip">튜토리얼 건너뛰기</button>' : '<button class="pri" data-a="tutRestart">튜토리얼 다시 보기</button>'}<button data-a="storyReplay">시놉시스 다시 보기</button></div>
       <div class="row" style="margin-top:16px"><button class="danger" data-a="newGame">새 게임 시작 (현재 진행 삭제)</button></div></div>
       <div class="card"><h3>함장 기록 — ${esc(S.pilot)}</h3><div class="kv"><span>격파한 해적</span><span>${G.fmt(st.kills)}척</span><span>채굴량</span><span>${G.fmt(st.mined)}㎥</span><span>완료한 임무</span><span>${st.missions}건</span><span>탐험 사이트</span><span>${st.sites}곳</span><span>잃은 함선</span><span>${st.lost}척</span><span>보유 함선</span><span>${Object.keys(S.ships).length}척</span><span>훈련한 스킬 레벨</span><span>${Object.values(S.skills).reduce((a, b) => a + b, 0)}</span></div></div></div>`;
   }
 
   // ---- 우주 화면 ----
-  function showSpace(on) { $('#space').hidden = !on; $('#docked').hidden = on; $('#app').classList.toggle('inspace', !!on); }
+  function showSpace(on) { if (on && MOB() && $('#space').hidden) { $('#space').classList.add('ovmin'); UI.ovAuto = false; } $('#space').hidden = !on; $('#docked').hidden = on; $('#app').classList.toggle('inspace', !!on); }
   function renderSlog() {
     const k = { good: 'good', warn: 'warn', bad: 'bad', news: 'news' };
     $('#slog').innerHTML = S.log.slice(-8).map(l => `<div class="${k[l.kind] || ''}">${esc(l.text)}</div>`).join('');
@@ -436,7 +436,11 @@
     const busy = SP.warp || SP.docking || SP.undocking;
     const IN = { mine: '채굴 진행 중 — 자동', attack: '교전 중 — 자동', dock: '도킹 접근 중', jump: '관문 접근 중', loot: '회수 접근 중', hack: '해독 준비 중' };
     const ovmin = $('#space').classList.contains('ovmin');
-    let html = `<div class="sheetbar mobonly" data-a="ovSheet"><i></i><span>${ovmin ? '눌러서 목록 펼치기' : '눌러서 접기 · 우주 넓게 보기'}</span></div><div class="ovhome"><button class="go" data-a="goHome" ${busy || !G.activeShip(S) ? 'disabled' : ''}>기지로 귀환</button></div>
+    let sumHtml = '';
+    if (ovmin && MOB()) { const se = UI.sel && G.byId(SP, UI.sel); const where = SP.cel && G.celInfo ? '' : '';
+      const st = busy ? (SP.warp ? '워프 중…' : SP.docking ? '도킹 접근 중…' : '출항 중…') : SP.intent ? `<b>${IN[SP.intent.type] || '자동 진행 중'}</b>${se ? ' · ' + esc(se.name) : ''}` : se ? `선택: ${esc(se.name)}` : `대기 중 · ${esc(G.systems[SP.sys].name)}`;
+      sumHtml = `<div class="ovsum mobonly"><span class="st">${st}</span>${SP.intent ? '<button class="sm" data-a="stopIntent">멈춤</button>' : `<button class="go sm" data-a="goHome" ${busy || !G.activeShip(S) ? 'disabled' : ''}>기지로 귀환</button>`}<button class="sm" data-a="ovSheet">목록 ▲</button></div>`; }
+    let html = `${sumHtml}<div class="sheetbar mobonly" data-a="ovSheet"><i></i><span>▼ 눌러서 접기 · 우주 넓게 보기</span></div><div class="ovhome"><button class="go" data-a="goHome" ${busy || !G.activeShip(S) ? 'disabled' : ''}>기지로 귀환</button></div>
       ${SP.intent ? `<div class="intent"><span>${IN[SP.intent.type] || ''}</span><button class="sm" data-a="stopIntent">멈춤</button></div>` : ''}
       ${SP.afterWarp ? `<div class="intent"><span>기지로 귀항 중 — 도착하면 자동 도킹</span></div>` : ''}
       <div class="tabs" style="padding:8px 8px 0"><button class="${UI.ovTab === 'grid' ? 'on' : ''}" data-a="ovTab" data-t="grid">근처</button><button class="${UI.ovTab === 'sys' ? 'on' : ''}" data-a="ovTab" data-t="sys">이동 (워프)</button>${G.hasProbe(S) ? '<button data-a="scanner">탐침 스캐너</button>' : ''}</div><div class="ovlist">`;
@@ -492,7 +496,7 @@
   }
 
   // ---- 우주 캔버스 ----
-  const stars = Array.from({ length: 260 }, (_, i) => { const r = G.srand(i * 7919 + 1); return { x: r(), y: r(), z: 0.2 + r() * 0.8, b: r() }; });
+  const stars = Array.from({ length: 560 }, (_, i) => { const r = G.srand(i * 7919 + 1); const b = r(); return { x: r(), y: r(), z: 0.2 + r() * 0.8, b, spike: b > 0.985, col: ['rgba(190,214,255,1)', 'rgba(255,214,170,1)', 'rgba(255,246,230,1)'][Math.floor(r() * 3)] }; });
   const FONT = getComputedStyle(document.body).fontFamily || 'sans-serif';
   // 워프 터널: 카메라 쪽으로 날아오는 별(3D)
   const tunnel = Array.from({ length: 320 }, () => ({ x: Math.random() * 2 - 1, y: Math.random() * 2 - 1, z: Math.random() }));
@@ -520,12 +524,17 @@
     if (cv.width !== W * dpr || cv.height !== H * dpr) { cv.width = W * dpr; cv.height = H * dpr; }
     const c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
     c.fillStyle = '#000'; c.fillRect(0, 0, W, H);
-    const pl = SP.pl; const mob = MOB(); if (SP.warp) { UI.panX = 0; UI.panY = 0; } const cx = (mob ? (innerHeight < 500 ? (W - Math.min(330, W * 0.44)) / 2 : W / 2) : W / 2 - 160) + UI.panX, cy = (mob ? (innerHeight < 500 ? H / 2 : H * 0.3) : H / 2 - 20) + UI.panY;
+    const pl = SP.pl; const mob = MOB(); if (SP.warp) { UI.panX = 0; UI.panY = 0; } const cx = (mob ? (innerHeight < 500 ? (W - Math.min(330, W * 0.44)) / 2 : W / 2) : W / 2 - 160) + UI.panX, cy = (mob ? (innerHeight < 500 ? H / 2 : $('#space').classList.contains('ovmin') ? (H - 120) / 2 : H * 0.3) : H / 2 - 20) + UI.panY;
     const warping = SP.warp && SP.warp.phase === 'warp';
     const dk = SP.docking ? G.clamp(SP.docking.t / SP.docking.dur, 0, 1) : 0; const uk = SP.undocking ? G.clamp(SP.undocking.t / SP.undocking.dur, 0, 1) : 1;
     const z = UI.zoom * (1 + (dk * dk * (3 - 2 * dk)) * 2.4 + (1 - uk) * 1.8);
     // 별 배경
-    stars.forEach(s => { const px = ((s.x * W - pl.x * z * 0.05 * s.z) % W + W) % W, py = ((s.y * H - pl.y * z * 0.05 * s.z) % H + H) % H; c.fillStyle = `rgba(255,246,230,${0.2 + s.b * 0.6})`; c.fillRect(px, py, s.z * 1.5, s.z * 1.5); });
+    // v9: 성계마다 다른 먼 성운·은하 배경 (아주 천천히 움직임) + 촘촘한 별 + 밝은 별은 십자 빛갈래
+    if (SP.bgAt !== SP.cel) { SP.bgAt = SP.cel; SP.bgX = pl.x; SP.bgY = pl.y; }
+    G.Art.drawSpaceBg && G.Art.drawSpaceBg(c, W, H, SP.sys, -Math.tanh((pl.x - SP.bgX) / 120000) * 60 + UI.panX * 0.04, -Math.tanh((pl.y - SP.bgY) / 120000) * 60 + UI.panY * 0.04, warping ? 0.35 : 1);
+    stars.forEach(s => { const px = ((s.x * W - pl.x * z * 0.05 * s.z) % W + W) % W, py = ((s.y * H - pl.y * z * 0.05 * s.z) % H + H) % H;
+      if (s.spike) { G.Art.drawSpikeStar ? G.Art.drawSpikeStar(c, px, py, 0.9 + s.z * 1.2, s.col, 0.55 + 0.2 * Math.sin(T * 0.7 + s.x * 40)) : null; return; }
+      c.fillStyle = `rgba(255,246,230,${0.12 + s.b * 0.5})`; c.fillRect(px, py, s.z * 1.3, s.z * 1.3); });
     // 성계의 항성과 먼 행성 (현재 위치에서 본 방향)
     const here = G.celInfo(SP, SP.cel); const hp = here && here.pos ? here.pos : { x: 6, y: 4 };
     const star = G.starOf(SP.sys); const dAU = Math.max(0.6, Math.hypot(hp.x, hp.y)); const sa = Math.atan2(-hp.y, -hp.x);
@@ -602,7 +611,7 @@
     if (SP.arrFx > 0) drawTunnel(c, W, H, cx, cy, 0.15 * SP.arrFx, SP.arrFx, fdt);
     if (SP.cmd.type === 'goto') { c.strokeStyle = '#ffb000'; c.beginPath(); c.arc(X(SP.cmd.x), Y(SP.cmd.y), 6, 0, 7); c.stroke(); }
     c.font = '11px ' + FONT; c.textAlign = 'left'; c.fillStyle = '#7a6a58';
-    if (mob) c.fillText(`눈금 ${km(100 / z)} / 100px · 두 손가락 확대 · 꾹 누르면 이동`, 8, 74); else c.fillText(`눈금 ${km(100 / z)} / 100px · 휠 확대 · 빈 곳 더블클릭 이동`, 12, H - 168);
+    if (!mob) c.fillText(`눈금 ${km(100 / z)} / 100px · 휠 확대 · 빈 곳 더블클릭 이동`, 12, H - 168);
     cv._hit = (mx, my) => { let best = null; SP.ents.forEach(e => { if (e.kind === 'planet') return; const d = (X(e.x) - mx) ** 2 + (Y(e.y) - my) ** 2; const rr = Math.max(mob ? 28 : 16, (e.r || 0) * z); if (d < rr * rr && (!best || d < best.d)) best = { id: e.id, d }; }); return best && best.id; };
     cv._toWorld = (mx, my) => ({ x: pl.x + (mx - cx) / z, y: pl.y + (my - cy) / z });
   }
@@ -716,7 +725,13 @@
     setDestSt: (d) => { S.dest = { sys: G.stations[d.id].sys, station: d.id, safe: true }; toast(`목적지: ${G.stations[d.id].name}`); refresh(); rerenderModal(); },
     clearDest: () => { S.dest = null; if (SP) SP.ap = false; refresh(); rerenderModal(); },
     saveBtn: () => { if (SP) G.saveHp(SP); save(); toast('저장했습니다.'); },
-    ovSheet: () => { $('#space').classList.toggle('ovmin'); renderOverview(); },
+    ovSheet: () => { $('#space').classList.toggle('ovmin'); UI.ovAuto = false; renderOverview(); },
+    storyNext: () => { const st = UI.story; if (!st) return; if (st.i < SYN().length - 1) st.i++; else st.stage = 'ways'; renderStory(); renderTut(); },
+    storySkip: () => { const st = UI.story; if (!st) return; if (st.stage === 'syn') { st.stage = 'ways'; renderStory(); renderTut(); } else closeStory(); },
+    storyGo: () => closeStory(),
+    storyTap: () => { if (UI.story && UI.story.stage === 'syn') A.storyNext(); },
+    storyReplay: () => openStory(true),
+    tutToggle: () => { UI.tutOpen = !UI.tutOpen; tutKey = ''; UI.tutNoBeep = true; renderTut(); },
     hudToggle: () => { $('#space').classList.toggle('hudmin'); syncMob(); },
     recenter: () => { UI.panX = 0; UI.panY = 0; },
     moveMode: () => { UI.moveMode = !UI.moveMode; syncMob(); if (UI.moveMode) toast('가고 싶은 곳을 톡 누르세요'); },
@@ -901,58 +916,66 @@
     const st = G.tutStep(S); if (!st) return null;
     const D = S.loc.docked; const n = G.TUT.length - 1; const idx = S.tut.step;
     const pg = (p) => (UI.page !== p ? [`#side [data-a=page][data-p=${p}]`] : []);
-    const busyTxt = () => SP && SP.undocking ? '기지에서 나가는 중이에요…' : SP && SP.docking ? '기지로 들어가는 중이에요…' : SP && SP.warp ? (SP.warp.phase === 'align' ? '출발 준비 중이에요. 잠깐만요!' : '워프 중이에요! 별이 흘러가는 모습을 보세요.') : null;
+    const mob = MOB(); const LST = mob ? '아래 목록의' : '오른쪽 목록의'; const MENU = mob ? '아래 메뉴의' : '왼쪽 메뉴의';
+    const busyTxt = () => SP && SP.undocking ? '출항 중입니다. 잠시 대기 바랍니다.' : SP && SP.docking ? '도킹 접근 중입니다. 곧 입항합니다.' : SP && SP.warp ? (SP.warp.phase === 'align' ? '워프 정렬 중입니다. 잠시 기다려 주십시오.' : '워프 항행 중입니다. 도착 시 보고드리겠습니다.') : null;
     const ore = (() => { const sh = G.activeShip(S); return sh ? Object.entries(sh.cargo).filter(([k]) => G.items[k].cat === 'ore').reduce((a, [, q]) => a + q, 0) : 0; })();
-    const home = { text: '기지로 돌아가야 해요. 오른쪽 위 [기지로 귀환]를 누르세요.', t: ['[data-a=goHome]'] };
+    const home = { text: `기지 귀환을 건의합니다. ${mob ? '아래' : '오른쪽 위'} [기지로 귀환]을 눌러 주십시오.`, t: ['[data-a=goHome]'] };
     const out = (o) => Object.assign({ idx, n }, o);
     const selKind = SP && UI.sel && G.byId(SP, UI.sel) ? G.byId(SP, UI.sel).kind : null;
     switch (st.id) {
-      case 'intro': return out({ title: '함장님, 취임을 환영합니다', text: `저는 부함장 ${G.CREW.xo.name}입니다. 우리 함선 "${G.activeShip(S) ? G.activeShip(S).name : ''}"의 첫 항해를 제가 하나씩 안내해 드릴게요. 노란 테두리가 있는 곳만 누르시면 됩니다.`, next: '항해 시작' });
-      case 'undock': return out({ title: '1. 우주로 나가기', text: D ? '기지 밖으로 나가 볼까요? 하늘색 [출항] 블록를 누르세요.' : (busyTxt() || ''), t: D ? ['#heroUndock', '#side [data-a=undock]'] : [] });
+      case 'intro': return out({ title: '함장님, 취임을 환영합니다', text: `부함장 ${G.CREW.xo.name}입니다. 오늘부터 "${G.activeShip(S) ? G.activeShip(S).name : ''}"의 첫 항해를 보좌하겠습니다. 노란 테두리로 표시된 곳을 누르시면 됩니다.`, next: '항해 시작' });
+      case 'undock': return out({ title: '1. 우주로 나가기', text: D ? '출항 준비 완료입니다. [출항]을 눌러 주십시오.' : (busyTxt() || ''), t: D ? ['#heroUndock', '#side [data-a=undock]'] : [] });
       case 'warpBelt': {
-        if (D) return out({ title: '2. 소행성대로 워프', text: '먼저 [출항]를 누르세요.', t: ['#heroUndock', '#side [data-a=undock]'] });
+        if (D) return out({ title: '2. 소행성대로 워프', text: '먼저 [출항]을 눌러 주십시오.', t: ['#heroUndock', '#side [data-a=undock]'] });
         const b = busyTxt(); if (b) return out({ title: '2. 소행성대로 워프', text: b });
-        if (UI.ovTab !== 'sys') return out({ title: '2. 소행성대로 워프', text: '광석이 있는 소행성대로 가요. 오른쪽 목록의 [이동 (워프)] 탭을 누르세요.', t: ['[data-a=ovTab][data-t=sys]'] });
-        return out({ title: '2. 소행성대로 워프', text: '"소행성대" 줄의 [워프] 버튼을 누르세요. 아주 빠르게 날아가요.', t: ['[data-a=warp][data-kind=belt]'] });
+        if (UI.ovTab !== 'sys') return out({ title: '2. 소행성대로 워프', text: `목표는 소행성대입니다. ${LST} [이동 (워프)] 탭을 눌러 주십시오.`, t: ['[data-a=ovTab][data-t=sys]'] });
+        return out({ title: '2. 소행성대로 워프', text: '"소행성대" 줄의 [워프]를 눌러 주십시오.', t: ['[data-a=warp][data-kind=belt]'] });
       }
       case 'mine': case 'fill': {
         const title = st.id === 'mine' ? '3. 광석 캐기' : '3. 광석 캐기 — 화물칸 채우기';
-        if (D) return out({ title, text: '다시 [출항]를 누르고 소행성대로 가세요.', t: ['#heroUndock'] });
+        if (D) return out({ title, text: '[출항] 후 소행성대로 이동해 주십시오.', t: ['#heroUndock'] });
         const b = busyTxt(); if (b) return out({ title, text: b });
-        if (SP.intent && SP.intent.type === 'mine') return out({ title, text: `알아서 다가가서 캐고 있어요. 그냥 지켜보세요! 화물: 광석 ${G.fmt(ore)} / ${G.TUT_FILL}㎥` });
-        if (!SP.cel || !SP.cel.startsWith('bl:')) return out({ title, text: '소행성대로 워프하세요: [이동 (워프)] 탭 → 소행성대 [워프].', t: UI.ovTab !== 'sys' ? ['[data-a=ovTab][data-t=sys]'] : ['[data-a=warp][data-kind=belt]'] });
-        if (selKind === 'roid') return out({ title, text: '큰 버튼 [채굴 시작]를 누르세요. 다가가기·조준·채굴 빔 켜기를 모두 알아서 해요.', t: ['[data-a=intent][data-t=mine]'] });
-        if (UI.ovTab !== 'grid') return out({ title, text: '[근처] 탭을 누르세요.', t: ['[data-a=ovTab][data-t=grid]'] });
-        return out({ title, text: '목록에서 소행성 하나를 누르세요.', t: ['#overview tr[data-kind=roid]'] });
+        if (SP.intent && SP.intent.type === 'mine') return out({ title, text: `함장님, 채굴 빔 가동 중입니다. 화물칸 ${G.fmt(ore)}/${G.TUT_FILL}㎥. 만재 시 보고드리겠습니다.` });
+        if (!SP.cel || !SP.cel.startsWith('bl:')) return out({ title, text: '소행성대로 워프해 주십시오. [이동 (워프)] 탭 → 소행성대 [워프].', t: UI.ovTab !== 'sys' ? ['[data-a=ovTab][data-t=sys]'] : ['[data-a=warp][data-kind=belt]'] });
+        if (selKind === 'roid') return out({ title, text: '[채굴 시작]을 눌러 주십시오. 접근·조준·채굴은 자동으로 진행됩니다.', t: ['[data-a=intent][data-t=mine]'] });
+        if (UI.ovTab !== 'grid') return out({ title, text: '[근처] 탭을 눌러 주십시오.', t: ['[data-a=ovTab][data-t=grid]'] });
+        return out({ title, text: '소행성대 도착입니다. 목록에서 소행성 하나를 선택해 주십시오.', t: ['#overview tr[data-kind=roid]'] });
       }
-      case 'home': { const b = busyTxt(); if (b) return out({ title: '4. 기지로 돌아가기', text: b + (SP && SP.afterWarp ? ' 도착하면 자동으로 도킹해요.' : '') });
-        if (SP && SP.intent && SP.intent.type === 'dock') return out({ title: '4. 기지로 돌아가기', text: '기지 문으로 다가가는 중이에요. 곧 들어가요!' });
-        return out({ title: '4. 기지로 돌아가기', text: '광석을 충분히 캤어요! 이제 팔러 가요. 오른쪽 위 [기지로 귀환]를 누르세요.', t: ['[data-a=goHome]'] }); }
+      case 'home': { const b = busyTxt(); if (b) return out({ title: '4. 기지로 돌아가기', text: b + (SP && SP.afterWarp ? ' 도착 즉시 자동 도킹합니다.' : '') });
+        if (SP && SP.intent && SP.intent.type === 'dock') return out({ title: '4. 기지로 돌아가기', text: '기지 도킹 접근 중입니다. 곧 입항합니다.' });
+        return out({ title: '4. 기지로 돌아가기', text: `화물칸 만재입니다. 광석 ${G.fmt(ore)}㎥ 적재 완료. 기지 귀환을 건의합니다. [기지로 귀환]을 눌러 주십시오.`, t: ['[data-a=goHome]'] }); }
       case 'sell': if (!D) return out(Object.assign({ title: '5. 광석 팔기' }, home));
-        return out({ title: '5. 광석 팔기', text: UI.page !== 'station' ? '왼쪽 [기지] 메뉴를 누르세요.' : '[화물 모두 판매]를 누르면 한 번에 팔려요.', t: UI.page !== 'station' ? pg('station') : ['#main [data-a=sellCargo]'] });
+        return out({ title: '5. 광석 팔기', text: UI.page !== 'station' ? `${MENU} [기지]를 눌러 주십시오.` : '입항 완료입니다. [화물 모두 판매]를 누르시면 일괄 판매됩니다.', t: UI.page !== 'station' ? pg('station') : ['#main [data-a=sellCargo]'] });
       case 'agent': if (!D) return out(Object.assign({ title: '6. 임무 받기' }, home));
-        return out({ title: '6. 임무 받기', text: UI.page !== 'agents' ? '돈을 벌었어요! 이번엔 임무를 받아 봐요. 왼쪽에 새로 생긴 [임무 본부] 메뉴를 누르세요.' : '마음에 드는 임무의 [수락]을 누르세요. 보상이 크게 들어와요.', t: UI.page !== 'agents' ? pg('agents') : ['#main [data-a=accept]'] });
+        return out({ title: '6. 임무 받기', text: UI.page !== 'agents' ? `판매 완료입니다. 다음은 임무 수령입니다. ${MENU} 새 메뉴 [임무 본부]를 눌러 주십시오.` : '보상이 마음에 드시는 임무의 [수락]을 눌러 주십시오.', t: UI.page !== 'agents' ? pg('agents') : ['#main [data-a=accept]'] });
       case 'fit': if (!D) return out(Object.assign({ title: '7. 장비 달기' }, home));
-        return out({ title: '7. 장비 달기', text: UI.page !== 'fitting' ? '선물로 "소형 보호막 확장기"를 드렸어요. 왼쪽 [장착] 메뉴를 누르세요.' : '"소형 보호막 확장기" 옆 [빈 칸에 장착]을 누르세요. 함선이 더 튼튼해져요.', t: UI.page !== 'fitting' ? pg('fitting') : ['#main [data-a=fitQuick][data-id=m_sext_s]'] });
-      case 'done': return out({ title: '튜토리얼 완료', text: '잘하셨어요! 보상 50,000 LM을 드리고 스킬·항성도 메뉴도 열어 드릴게요. 받은 임무는 [임무 본부] 메뉴에서 내용을 볼 수 있어요. 언제든 [설정]에서 튜토리얼을 다시 볼 수 있어요.', next: '마치기' });
+        return out({ title: '7. 장비 달기', text: UI.page !== 'fitting' ? `보급품으로 "소형 보호막 확장기"를 지급했습니다. ${MENU} [장착]을 눌러 주십시오.` : '"소형 보호막 확장기" 옆 [빈 칸에 장착]을 눌러 주십시오. 방어력이 올라갑니다.', t: UI.page !== 'fitting' ? pg('fitting') : ['#main [data-a=fitQuick][data-id=m_sext_s]'] });
+      case 'done': return out({ title: '교육 과정 완료', text: '교육 과정을 마쳤습니다. 보상 50,000 LM 지급, 스킬·항성도 메뉴를 열었습니다. 받은 임무는 [임무 본부]에서 확인하실 수 있습니다. 튜토리얼은 [설정]에서 다시 보실 수 있습니다.', next: '마치기' });
     }
     return null;
   }
   let tutScrollKey = '', tutKey = '';
   function renderTut() {
     const hi = $('#tutHi'), ar = $('#tutArrow'), card = $('#tutCard');
+    if (UI.story) { hi.hidden = ar.hidden = card.hidden = true; UI.tutTarget = UI.story.stage === 'syn' ? '#storyNext' : '#storyGo'; return; }
     const info = S && $('#modal').hidden ? tutInfo() : null;
     UI.tutTarget = null; const TOPY = SP && SP.targets.length + Object.keys(SP.locking).length ? '128px' : '64px';
-    if (!info) { hi.hidden = ar.hidden = card.hidden = true; tutKey = ''; return; }
+    if (!info) { hi.hidden = ar.hidden = card.hidden = true; tutKey = ''; $('#space').classList.remove('tutoring'); if (UI.ovAuto && MOB()) { $('#space').classList.add('ovmin'); UI.ovAuto = false; } return; }
     let el = null; (info.t || []).some(q => { const x = document.querySelector(q); if (x && x.offsetParent !== null && !x.disabled) { el = x; UI.tutTarget = q; return true; } return false; });
     const key = info.title + '|' + info.text + '|' + (info.next || '');
-    if (key !== tutKey) { tutKey = key; G.Art.beep('crew'); card.innerHTML = `<div class="crewbox"><div class="pt">${G.Art.portrait('xo')}</div><div style="flex:1"><div class="nm">${G.CREW.xo.rank} ${G.CREW.xo.name} · 보고</div><div class="tt">${esc(info.title)}</div><div class="tx">${esc(info.text)}</div><div class="tb"><span class="prog">교육 과정 ${info.idx} / ${info.n}</span><span class="row">${info.next ? '' : '<button class="sm" data-a="tutSkip">건너뛰기</button>'}${info.next ? `<button class="pri big" id="tutNextBtn" data-a="tutNext">${esc(info.next)}</button>` : ''}</span></div></div></div>`; }
+    if (key !== tutKey) { tutKey = key; if (!UI.tutNoBeep) G.Art.beep('crew'); UI.tutNoBeep = false; card.innerHTML = `<div class="crewbox" ${MOB() ? 'data-a="tutToggle"' : ''}><div class="pt">${G.Art.portrait('xo')}</div><div style="flex:1"><div class="nm">${G.CREW.xo.rank} ${G.CREW.xo.name} · 보고</div><div class="tt">${esc(info.title)}</div><div class="tx">${esc(info.text)}</div>${MOB() ? `<span class="more">${UI.tutOpen ? '▴ 눌러서 줄이기' : '▾ 눌러서 자세히'}</span>` : ''}<div class="tb"><span class="prog">교육 과정 ${info.idx} / ${info.n}</span><span class="row">${info.next ? '' : '<button class="sm" data-a="tutSkip">건너뛰기</button>'}${info.next ? `<button class="pri big" id="tutNextBtn" data-a="tutNext">${esc(info.next)}</button>` : ''}</span></div></div></div>`; }
     card.hidden = false;
-    const mob = MOB();
-    if (mob && SP && !info.next) $('#space').classList.remove('ovmin');
+    const mob = MOB(); $('#space').classList.toggle('tutoring', true);
+    if (mob && SP) { const sp = $('#space'); const qs = info.t || [];
+      const needOpen = sp.classList.contains('ovmin') && !info.next && qs.some(q => { const x = document.querySelector(q); return x && x.closest('#overview') && x.offsetParent === null; });
+      const inOv = qs.some(q => { const x = document.querySelector(q); return x && x.closest('#overview') && !x.closest('.ovsum'); });
+      if (needOpen) { sp.classList.remove('ovmin'); UI.ovAuto = true; renderOverview(); }
+      else if (UI.ovAuto && !inOv && !sp.classList.contains('ovmin')) { sp.classList.add('ovmin'); UI.ovAuto = false; renderOverview(); } }
+    card.classList.toggle('mini', mob && !UI.tutOpen);
     if (mob && el && el.scrollIntoView && tutScrollKey !== key + UI.tutTarget) { tutScrollKey = key + UI.tutTarget; try { el.scrollIntoView({ block: 'center', inline: 'center' }); } catch (e) { /* 무시 */ } }
+    if (mob && SP) { el = null; UI.tutTarget = null; (info.t || []).some(q => { const x = document.querySelector(q); if (x && x.offsetParent !== null && !x.disabled) { el = x; UI.tutTarget = q; return true; } return false; }); }
     if (info.next) { el = $('#tutNextBtn'); UI.tutTarget = '#tutNextBtn'; }
-    if (!el) { hi.hidden = ar.hidden = true; card.style.top = TOPY; card.style.bottom = ''; return; }
+    if (!el) { hi.hidden = ar.hidden = true; card.style.top = mob ? ($('#top').getBoundingClientRect().bottom + 4) + 'px' : TOPY; card.style.bottom = ''; return; }
     const r = el.getBoundingClientRect(); const pad = 6;
     Object.assign(hi.style, { left: r.left - pad + 'px', top: r.top - pad + 'px', width: r.width + pad * 2 + 'px', height: r.height + pad * 2 + 'px' }); hi.hidden = false;
     if (info.next) { ar.hidden = true; card.style.top = '30%'; card.style.bottom = ''; return; }
@@ -1015,6 +1038,43 @@
     });
   }
 
+
+  // ---- v9: 새 게임 흐름 ① 시놉시스 → ② 게임 소개 → ③ 튜토리얼 ----
+  const SYN = () => { const sh = G.activeShip(S); const nm = esc(S.pilot || '함장'); const ship = esc(sh ? sh.name : '연락선');
+    return [
+      ['개척력 312년.', '사람들은 오래된 항로를 따라 아르케 성단의 가장자리에 닿았습니다.'],
+      ['세 나라가 이 별바다를 나누어 다스립니다.', '성간 탐사 연합 · 카스트라 제국 · 노르딘 공화국.', '그 틈에서는 붉은 까마귀단과 공허 약탈자가 상선을 노립니다.'],
+      ['성단 깊은 곳에는 아직 아무도 적지 않은 행성들,', '그리고 오래전 사라진 문명의 유적이 잠들어 있습니다.'],
+      ['연합 개척선단의 전초 기지, 아르케 궤도 기지.', `작은 연락선 「${ship}」이 출항을 기다립니다.`],
+      ['— 성간 탐사 연합 개척 사령부 명령 —', `${nm}, 귀관을 연락선 「${ship}」의 함장으로 임명한다.`, '이 개척 일지의 첫 장은 귀관이 쓴다.'],
+    ]; };
+  const WAYS = [
+    ['planet-ice', '탐험', '성계도의 "?" 행성을 찾아가 탐사하고, 신호를 잡아 유적과 데이터 저장고를 해독합니다.'],
+    ['raven-large', '전투와 세력', '해적을 물리쳐 현상금을 받고, 세력 평판을 쌓아 더 큰 임무를 엽니다.'],
+    ['station', '무역', '교역소마다 다른 시세를 읽고, 싸게 사서 비싸게 팝니다. 매수·매도 주문도 걸 수 있어요.'],
+    ['planet-rock', '채굴과 제조', '소행성대에서 광석을 캐서 팔거나, 산업 메뉴에서 설계도로 장비를 만듭니다.'],
+    ['gate', '임무', '임무 본부에서 운송·전투·채굴 임무를 받아 보상과 평판을 얻습니다.'],
+    ['ship-cruiser', '함선과 스킬', '더 큰 함선을 사서 장비를 달고, 스킬을 훈련해 함장으로 성장합니다.'],
+  ];
+  let storyRaf = 0;
+  function openStory(replay) { UI.story = { stage: 'syn', i: 0, replay: !!replay, t0: performance.now() }; const el = $('#story'); el.hidden = false; renderStory(); renderTut();
+    cancelAnimationFrame(storyRaf); const cv = $('#storycv'); const pts = Array.from({ length: 240 }, () => ({ x: Math.random() * 2 - 1, y: Math.random() * 2 - 1, z: Math.random() }));
+    const loop = (now) => { if (!UI.story) return; const W = cv.clientWidth, H = cv.clientHeight, d = window.devicePixelRatio || 1; if (cv.width !== W * d) { cv.width = W * d; cv.height = H * d; }
+      const c = cv.getContext('2d'); c.setTransform(d, 0, 0, d, 0, 0); c.fillStyle = '#000'; c.fillRect(0, 0, W, H); const T = (now - UI.story.t0) / 1000;
+      const im = G.Art.BGI && G.Art.BGI.galaxy; if (im) { const S2 = Math.max(W, H) * (1.3 + T * 0.004); c.globalAlpha = 0.85; c.drawImage(im, (W - S2) / 2 - Math.sin(T * 0.05) * 30, (H - S2) / 2, S2, S2); c.globalAlpha = 1; }
+      pts.forEach(p => { p.z -= 0.0016; if (p.z <= 0.02) { p.z = 1; p.x = Math.random() * 2 - 1; p.y = Math.random() * 2 - 1; } const k = 0.35 / p.z; const x = W / 2 + p.x * W * k * 0.5, y = H / 2 + p.y * H * k * 0.5; const r = Math.min(2.2, 0.4 / p.z);
+        c.fillStyle = `rgba(255,246,230,${Math.min(0.9, (1 - p.z) * 1.1)})`; c.fillRect(x, y, r, r); });
+      storyRaf = requestAnimationFrame(loop); };
+    storyRaf = requestAnimationFrame(loop); }
+  function renderStory() { const st = UI.story; if (!st) return; const box = $('#storybox');
+    if (st.stage === 'syn') { const sl = SYN(); const last = st.i === sl.length - 1;
+      box.className = 'syn'; box.innerHTML = `<div class="lines" data-a="storyTap">${sl[st.i].map((l, k) => `<p style="animation-delay:${0.25 + k * 0.9}s">${l}</p>`).join('')}</div>
+        <div class="sbar"><span class="dots">${sl.map((_, k) => `<i class="${k === st.i ? 'on' : ''}"></i>`).join('')}</span><button id="storyNext" class="${last ? 'pri' : ''}" data-a="storyNext">${last ? '임명을 받든다 ›' : '다음 ›'}</button></div>`; }
+    else { box.className = 'ways'; box.innerHTML = `<h2>이 항로에서 할 수 있는 일</h2><p class="sub">정해진 길은 없습니다. 원하는 방식으로 이름을 남기세요.</p>
+      <div class="wgrid">${WAYS.map(([im, t, d]) => `<div class="wcard"><div class="wi"><img src="img/sp/${im}.webp" alt=""></div><div><b>${t}</b><span>${d}</span></div></div>`).join('')}</div>
+      <div class="sbar"><span class="sub small">${st.replay ? '' : '부함장 Evan이 첫 항해를 보고하며 안내합니다.'}</span><button id="storyGo" class="pri big" data-a="storyGo">${st.replay ? '돌아가기' : '항해 시작 ›'}</button></div>`; } }
+  function closeStory() { const st = UI.story; if (!st) return; UI.story = null; cancelAnimationFrame(storyRaf); $('#story').hidden = true;
+    if (S && !st.replay) { S.introSeen = true; save(); } tutKey = ''; renderTut(); }
   // ---- 시작 ----
   function showNew() {
     renderTop(); showSpace(false); $('#side').innerHTML = ''; setBgArt('station');
@@ -1024,7 +1084,7 @@
       <div class="row" style="margin:16px 0"><span style="color:var(--o);letter-spacing:1px">함장 이름</span><input id="pname" value="함장" maxlength="16"><button class="pri big" id="startbtn">시작하기</button></div>
       <div class="row"><button data-a="import">저장 파일 불러오기</button><input type="file" id="impfile" accept=".json,application/json" hidden></div>
       <details class="codeimp" style="margin-top:10px"><summary class="sub" style="cursor:pointer;padding:8px 0">다른 기기의 이어하기 링크·코드로 불러오기</summary><textarea id="codebox" class="codebox" rows="3" placeholder="이어하기 링크나 코드를 붙여넣으세요" spellcheck="false" autocomplete="off"></textarea><div class="row" style="margin-top:6px"><button data-a="pasteCode">코드로 불러오기</button></div></details></div>`;
-    $('#startbtn').onclick = () => { S = G.newGame($('#pname').value.trim() || '함장'); UI.page = 'station'; save(); start(); };
+    $('#startbtn').onclick = () => { S = G.newGame($('#pname').value.trim() || '함장'); S.introSeen = false; UI.page = 'station'; save(); start(); openStory(false); };
   }
   function start() {
     G.tick(S);
@@ -1037,11 +1097,11 @@
   window.addEventListener('beforeunload', () => { if (S) { if (SP) G.saveHp(SP); save(); } });
   G.boot = () => {
     let txt = null; try { txt = localStorage.getItem(G.SAVE_KEY); } catch (e) { }
-    if (txt) { try { S = G.deserialize(txt); start(); } catch (e) { console.warn(e); showNew(); } } else showNew();
+    if (txt) { try { S = G.deserialize(txt); start(); if (S.introSeen === false && S.tut && !S.tut.done) openStory(false); } catch (e) { console.warn(e); showNew(); } } else showNew();
     requestAnimationFrame(frame);
     checkHashLoad();
   };
   // 자동 점검용 진입점
-  G.ui = { A, tutInfo, renderTut, refresh, start, openScanner, rerenderModal, renderOverview, setState: (s) => { S = s; }, setSP: (sp) => { SP = sp; showSpace(!!sp); } };
+  G.ui = { openStory, closeStory, A, tutInfo, renderTut, refresh, start, openScanner, rerenderModal, renderOverview, setState: (s) => { S = s; }, setSP: (sp) => { SP = sp; showSpace(!!sp); } };
   G.boot();
 })(window.G);

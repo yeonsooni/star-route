@@ -4,7 +4,7 @@
   const Art = G.Art = {};
   // ---- 승무원 (창작 인물) ----
   G.CREW = {
-    xo:   { name: '한서윤', rank: '부함장', dept: '#d9624e', skin: '#e9c29f', hair: '#2a1d16', style: 'bob' },
+    xo:   { name: 'Evan', rank: '부함장', dept: '#d9624e', skin: '#e2b893', hair: '#3a281c', style: 'crew', brow: 1, jaw: 1 },
     tac:  { name: '라크 보렌', rank: '전술장교', dept: '#ffb000', skin: '#b98a63', hair: '#111', style: 'short', brow: 1 },
     eng:  { name: '도민 케스', rank: '기관장', dept: '#ffb000', skin: '#d8a982', hair: '#7a4a2a', style: 'bald', beard: 1 },
     sci:  { name: '엘라 미르', rank: '과학장교', dept: '#6b8fd6', skin: '#f0d3b8', hair: '#c9b28a', style: 'long', ears: 1 },
@@ -18,6 +18,7 @@
       bald: `<path d="M25 40 Q25 33 28 30 L28 44 Z M59 40 Q59 33 56 30 L56 44 Z" fill="${hair}"/>`,
       long: `<path d="M19 46 Q18 16 42 16 Q66 16 65 46 L67 76 L58 76 L57 36 Q42 27 27 36 L26 76 L17 76 Z" fill="${hair}"/>`,
       side: `<path d="M23 40 Q22 18 44 18 Q62 19 61 36 Q48 26 30 33 L28 46 Z" fill="${hair}"/>`,
+      crew: `<path d="M23 42 Q21 19 41 17 Q55 16 61 26 Q63 32 61 42 L58 33 Q54 27 46 28 Q40 25 33 29 Q27 32 26 42 Z" fill="${hair}"/><path d="M33 29 Q41 22 52 25" stroke="rgba(255,255,255,.12)" stroke-width="1.4" fill="none"/>`,
     }[c.style];
     return `<svg viewBox="0 0 84 100" xmlns="http://www.w3.org/2000/svg">
       <rect width="84" height="100" fill="#14100c"/><rect x="0" y="0" width="84" height="6" fill="${c.dept}" opacity=".9"/>
@@ -25,7 +26,7 @@
       <path d="M33 70 L42 80 L51 70 L51 62 L33 62 Z" fill="${c.skin}"/>
       <circle cx="58" cy="88" r="3" fill="#e8c9a0"/><ellipse cx="58" cy="88" rx="6" ry="2" fill="none" stroke="#e8c9a0" stroke-width="1"/>
       ${c.ears ? `<path d="M23 44 L17 30 L26 40 Z M61 44 L67 30 L58 40 Z" fill="${c.skin}"/>` : `<ellipse cx="24" cy="46" rx="3" ry="5" fill="${c.skin}"/><ellipse cx="60" cy="46" rx="3" ry="5" fill="${c.skin}"/>`}
-      <ellipse cx="42" cy="44" rx="18" ry="22" fill="${c.skin}"/>
+      ${c.jaw ? `<path d="M24 40 Q24 22 42 22 Q60 22 60 40 L59 54 Q56 64 47 67 L37 67 Q28 64 25 54 Z" fill="${c.skin}"/><path d="M27 54 Q30 64 37 66 L47 66 Q54 64 57 54 Q55 61 47 62 L37 62 Q29 61 27 54 Z" fill="rgba(60,40,30,.22)"/>` : `<ellipse cx="42" cy="44" rx="18" ry="22" fill="${c.skin}"/>`}
       ${hairShape}
       ${c.brow ? `<path d="M31 37 Q42 33 53 37" stroke="#5a3a2a" stroke-width="2.5" fill="none"/>` : `<path d="M32 39 L38 38 M46 38 L52 39" stroke="#3a2a20" stroke-width="1.6"/>`}
       <ellipse cx="35" cy="44" rx="2.2" ry="2" fill="#1a1410"/><ellipse cx="49" cy="44" rx="2.2" ry="2" fill="#1a1410"/>
