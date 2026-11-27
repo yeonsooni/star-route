@@ -20,56 +20,83 @@
     },
   };
   const hex = (h) => { const n = parseInt(h.slice(1), 16); return [(n >> 16 & 255) / 255, (n >> 8 & 255) / 255, (n & 255) / 255]; };
-  // 은은한 팔레트 (기존 뮤트 색감)
-  const PAL = { hull: hex('#8d929c'), hull2: hex('#6c727e'), dark: hex('#3c414b'), accent: hex('#c8925a'), red: hex('#b8624e'), sky: hex('#7f9fc4'), lv: hex('#a58cb4'), glass: hex('#9cc4e6'), eng: hex('#9fc2ff'), gold: hex('#d8b070') };
+  // 어두운 건메탈 + 청동 장식 (밝은 회색 상자처럼 보이지 않게)
+  const PAL = { hull: hex('#3c434c'), hull2: hex('#2c323a'), dark: hex('#1a1e24'), accent: hex('#c49652'), red: hex('#a45a48'), sky: hex('#5d7a96'), lv: hex('#7a6c88'), glass: hex('#e6c070'), canopy: hex('#6a92b4'), eng: hex('#9fd2ff'), gold: hex('#d8b070') };
 
   // ---------- 모델 만들기 ----------
   function Mesh() { this.p = []; this.n = []; this.c = []; this.e = []; this.glow = []; }
   Mesh.prototype.tri = function (a, b, c, col, em) {
     const u = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], v = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
     let n = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]]; const l = Math.hypot(n[0], n[1], n[2]) || 1; n = n.map(x => x / l);
-    const j = 1 + ((this.p.length * 7919) % 17 - 8) / 70; // 면마다 다른 밝기 — 판금·풍화 느낌
+    const j = 1 + ((this.p.length * 7919) % 17 - 8) / 90;
     [a, b, c].forEach(q => { this.p.push(q[0], q[1], q[2]); this.n.push(n[0], n[1], n[2]); this.c.push(col[0] * j, col[1] * j, col[2] * j); this.e.push(em || 0); });
   };
   Mesh.prototype.quad = function (a, b, c, d, col, em) { this.tri(a, b, c, col, em); this.tri(a, c, d, col, em); };
-  // 단면을 이어 붙인 선체 (prof: 단위 단면 꼭짓점, secs: {z, w, h, x, y})
-  Mesh.prototype.loft = function (prof, secs, col, opt) {
-    opt = opt || {}; const ring = secs.map(s => prof.map(([px, py]) => [(s.x || 0) + px * s.w, (s.y || 0) + py * s.h, s.z]));
-    for (let i = 0; i < ring.length - 1; i++) { const A = ring[i], B = ring[i + 1]; const cc = (opt.cols && opt.cols[i]) || col;
-      for (let k = 0; k < prof.length; k++) { const k2 = (k + 1) % prof.length; const top = prof[k][1] + prof[k2][1] > 0.4; const cq = opt.belly && !top ? opt.belly : cc; this.quad(A[k], A[k2], B[k2], B[k], cq); } }
-    const cap = (R, rev, cl, em) => { const cx = R.reduce((a, p) => a + p[0], 0) / R.length, cy = R.reduce((a, p) => a + p[1], 0) / R.length; const ctr = [cx, cy, R[0][2]];
-      for (let k = 0; k < R.length; k++) { const k2 = (k + 1) % R.length; if (rev) this.tri(ctr, R[k2], R[k], cl, em); else this.tri(ctr, R[k], R[k2], cl, em); } };
-    if (secs[0].w > 0.001) cap(ring[0], false, opt.backCol || PAL.dark, opt.backEm || 0);
-    if (secs[secs.length - 1].w > 0.001) cap(ring[ring.length - 1], true, opt.frontCol || col, 0);
+  Mesh.prototype.smoothFrom = function (v0) {
+    const acc = new Map();
+    const key = (i) => `${Math.round(this.p[i * 3] * 500)},${Math.round(this.p[i * 3 + 1] * 500)},${Math.round(this.p[i * 3 + 2] * 500)}`;
+    for (let i = v0; i < this.p.length / 3; i++) { const k = key(i); let a = acc.get(k); if (!a) acc.set(k, a = [0, 0, 0]); a[0] += this.n[i * 3]; a[1] += this.n[i * 3 + 1]; a[2] += this.n[i * 3 + 2]; }
+    for (let i = v0; i < this.p.length / 3; i++) { const a = acc.get(key(i)); const l = Math.hypot(a[0], a[1], a[2]) || 1; this.n[i * 3] = a[0] / l; this.n[i * 3 + 1] = a[1] / l; this.n[i * 3 + 2] = a[2] / l; }
     return this;
   };
-  // 납작한 판(날개·지느러미): xz 평면 다각형을 두께 t로
+  const capRing = (mesh, R, rev, cl, em) => { const cx = R.reduce((a, p) => a + p[0], 0) / R.length, cy = R.reduce((a, p) => a + p[1], 0) / R.length, cz = R.reduce((a, p) => a + p[2], 0) / R.length; const ctr = [cx, cy, cz];
+    for (let k = 0; k < R.length; k++) { const k2 = (k + 1) % R.length; if (rev) mesh.tri(ctr, R[k2], R[k], cl, em); else mesh.tri(ctr, R[k], R[k2], cl, em); } };
+  Mesh.prototype.loft = function (prof, secs, col, opt) {
+    opt = opt || {}; const v0 = this.p.length / 3;
+    const ring = secs.map(s => prof.map(([px, py]) => [(s.x || 0) + px * s.w, (s.y || 0) + py * s.h, s.z]));
+    for (let i = 0; i < ring.length - 1; i++) { const A = ring[i], B = ring[i + 1]; const cc = (opt.cols && opt.cols[i]) || col;
+      for (let k = 0; k < prof.length; k++) { const k2 = (k + 1) % prof.length; const top = prof[k][1] + prof[k2][1] > 0.4; const cq = opt.belly && !top ? opt.belly : cc; this.quad(A[k], A[k2], B[k2], B[k], cq); } }
+    if (secs[0].w > 0.001) capRing(this, ring[0], false, opt.backCol || PAL.dark, opt.backEm || 0);
+    if (secs[secs.length - 1].w > 0.001) capRing(this, ring[ring.length - 1], true, opt.frontCol || col, 0);
+    if (opt.smooth) this.smoothFrom(v0);
+    return this;
+  };
+  // 단면을 X축으로 이어 붙임 (날개·포드). prof는 (y,z) 단위 좌표, secs: {x, h(y), w(z), y, z}
+  Mesh.prototype.loftX = function (prof, secs, col, opt) {
+    opt = opt || {}; const v0 = this.p.length / 3;
+    const ring = secs.map(s => prof.map(([py, pz]) => [s.x, (s.y || 0) + py * s.h, (s.z || 0) + pz * s.w]));
+    for (let i = 0; i < ring.length - 1; i++) { const A = ring[i], B = ring[i + 1]; const cc = (opt.cols && opt.cols[i]) || col;
+      for (let k = 0; k < prof.length; k++) { const k2 = (k + 1) % prof.length; this.quad(A[k], A[k2], B[k2], B[k], cc); } }
+    if (Math.abs(secs[0].w) > 0.001) capRing(this, ring[0], false, opt.backCol || col, 0);
+    if (Math.abs(secs[secs.length - 1].w) > 0.001) capRing(this, ring[ring.length - 1], true, opt.frontCol || col, 0);
+    if (opt.smooth) this.smoothFrom(v0);
+    return this;
+  };
   Mesh.prototype.slab = function (poly, y, t, col, edge) {
     const T = poly.map(([x, z]) => [x, y + t / 2, z]), B = poly.map(([x, z]) => [x, y - t / 2, z]);
     for (let i = 1; i < poly.length - 1; i++) { this.tri(T[0], T[i + 1], T[i], col); this.tri(B[0], B[i], B[i + 1], PAL.dark); }
     for (let i = 0; i < poly.length; i++) { const j = (i + 1) % poly.length; this.quad(T[i], T[j], B[j], B[i], edge || PAL.hull2); }
     return this;
   };
-  // 세로 지느러미: yz 평면
   Mesh.prototype.fin = function (poly, x, t, col) {
     const L = poly.map(([y, z]) => [x - t / 2, y, z]), R = poly.map(([y, z]) => [x + t / 2, y, z]);
     for (let i = 1; i < poly.length - 1; i++) { this.tri(R[0], R[i], R[i + 1], col); this.tri(L[0], L[i + 1], L[i], col); }
     for (let i = 0; i < poly.length; i++) { const j = (i + 1) % poly.length; this.quad(L[i], L[j], R[j], R[i], PAL.hull2); }
     return this;
   };
+  const CIR = (n, rot) => Array.from({ length: n }, (_, i) => { const a = i / n * 6.28318530718 + (rot || 0.04); return [Math.cos(a), Math.sin(a)]; });
+  const CIR12 = CIR(12), CIR8 = CIR(8);
   const OCT = Array.from({ length: 8 }, (_, i) => [Math.cos(i / 8 * 6.283 + 0.3927), Math.sin(i / 8 * 6.283 + 0.3927)]);
   const HEX = [[1, 0.15], [0.55, 1], [-0.55, 1], [-1, 0.15], [-0.6, -0.8], [0.6, -0.8]];
   const RECT = [[1, 1], [-1, 1], [-1, -1], [1, -1]];
+  const CHAM = [[0.72, 1], [-0.72, 1], [-1, 0.62], [-1, -0.5], [-0.72, -1], [0.72, -1], [1, -0.5], [1, 0.62]];
+  const BLADE = [[0, 1], [0.48, 0.55], [1, 0.06], [0.52, -0.48], [0, -0.92], [-0.52, -0.48], [-1, 0.06], [-0.48, 0.55]];
   Mesh.prototype.engine = function (x, y, z, r, len, col) {
-    this.loft(OCT, [{ z: z - len, w: r * 0.92, h: r * 0.92, x, y }, { z: z - len * 0.15, w: r, h: r, x, y }, { z, w: r * 0.7, h: r * 0.7, x, y }], col || PAL.hull2, { backCol: PAL.eng, backEm: 1 });
-    this.glow.push([x, y, z - len - 0.01, r]); return this;
+    this.loft(CIR12, [
+      { z: z - len, w: r * 1.18, h: r * 1.18, x, y },
+      { z: z - len * 0.72, w: r * 0.95, h: r * 0.95, x, y },
+      { z: z - len * 0.18, w: r * 0.7, h: r * 0.7, x, y },
+      { z, w: r * 0.52, h: r * 0.52, x, y },
+    ], col || PAL.hull2, { backCol: PAL.eng, backEm: 1, frontCol: PAL.dark, smooth: true });
+    this.loft(CIR12, [{ z: z - len * 0.06, w: r * 0.8, h: r * 0.8, x, y }, { z: z + 0.02, w: r * 0.78, h: r * 0.78, x, y }], PAL.accent);
+    this.glow.push([x, y, z - len - 0.03, r * 1.4]); this.glow.push([x, y, z - len - 0.12, r * 0.7]);
+    return this;
   };
   Mesh.prototype.box = function (x, y, z, sx, sy, sz, col, taper) {
-    const k = taper || 1; return this.loft(RECT, [{ z: z - sz, w: sx, h: sy, x, y }, { z: z + sz, w: sx * k, h: sy * k, x, y }], col);
+    const k = taper || 1; return this.loft(CHAM, [{ z: z - sz, w: sx, h: sy, x, y }, { z: z + sz, w: sx * k, h: sy * k, x, y }], col);
   };
   Mesh.prototype.both = function (f) { f(1); f(-1); return this; };
   Mesh.prototype.light = function (x, y, z, r) { this.glow.push([x, y, z, r, 1]); return this; };
-
   Mesh.prototype.emBox = function (x, y, z, sx, sy, sz, col, em) {
     const p = (dx, dy, dz) => [x + dx * sx, y + dy * sy, z + dz * sz];
     const A = p(-1, -1, -1), B = p(1, -1, -1), C = p(1, 1, -1), D = p(-1, 1, -1);
@@ -79,20 +106,26 @@
     this.quad(E, A, D, H, col, em); this.quad(B, F, G, C, col, em); return this;
   };
   Mesh.prototype.spine = function (x, y, z, len, r, col) {
-    return this.loft(RECT, [{ z, w: r, h: r, x, y }, { z: z + len, w: r * 0.3, h: r * 0.3, x, y }], col || PAL.dark);
+    return this.loft(CIR8, [{ z, w: r, h: r, x, y }, { z: z + len, w: r * 0.28, h: r * 0.28, x, y }], col || PAL.dark, { smooth: true });
   };
   Mesh.prototype.mast = function (x, y0, z, h, r, col) {
-    return this.loft(RECT, [{ z, w: r, h: r, x, y: y0 }, { z, w: r * 0.35, h: r * 0.35, x, y: y0 + h }], col || PAL.dark);
+    return this.loft(CIR8, [
+      { z: z - 0.002, w: r, h: r, x, y: y0 }, { z: z + 0.002, w: r, h: r, x, y: y0 },
+      { z: z + 0.002, w: r * 0.32, h: r * 0.32, x, y: y0 + h }, { z: z - 0.002, w: r * 0.32, h: r * 0.32, x, y: y0 + h },
+    ], col || PAL.dark, { smooth: true });
   };
   Mesh.prototype.port = function (x, y, z, s) {
-    this.emBox(x, y, z, 0.02 * (s || 1), 0.014 * (s || 1), 0.016 * (s || 1), PAL.glass, 0.9);
-    this.light(x, y, z, 0.028 * (s || 1)); return this;
+    this.emBox(x, y, z, 0.018 * (s || 1), 0.012 * (s || 1), 0.014 * (s || 1), PAL.glass, 0.95);
+    this.light(x, y, z, 0.026 * (s || 1)); return this;
   };
   Mesh.prototype.portRow = function (x, y, z0, z1, n, s) {
     for (let i = 0; i < n; i++) this.port(x, y, z0 + (z1 - z0) * (n === 1 ? 0.5 : i / (n - 1)), s); return this;
   };
   Mesh.prototype.belts = function (z0, z1, n, w, h, col) {
-    for (let i = 0; i < n; i++) this.box(0, 0.01, z0 + (z1 - z0) * (i + 0.5) / n, w, h, 0.028, col || PAL.hull2);
+    for (let i = 0; i < n; i++) {
+      const z = z0 + (z1 - z0) * (i + 0.5) / n, t = 0.032;
+      this.loft(CHAM, [{ z: z - t, w: w * 0.95, h: h * 0.88 }, { z, w, h }, { z: z + t, w: w * 0.95, h: h * 0.88 }], col || PAL.hull2);
+    }
     return this;
   };
   Mesh.prototype.greeble = function (seed, z0, z1, w, h, n, col) {
@@ -102,135 +135,205 @@
       const z = z0 + ((k >>> 3) % 1000) / 1000 * (z1 - z0);
       const x = (0.25 + ((k >>> 7) % 80) / 80 * 0.75) * w * s;
       const y = (((k >>> 11) % 70) / 70 - 0.25) * h;
-      this.box(x, y, z, 0.035 + ((k >>> 2) % 7) * 0.007, 0.02 + ((k >>> 5) % 5) * 0.006, 0.045 + ((k >>> 8) % 9) * 0.01, col || PAL.dark);
+      this.loft(CHAM, [
+        { z: z - (0.04 + ((k >>> 8) % 9) * 0.008), w: 0.03 + ((k >>> 2) % 7) * 0.006, h: 0.016 + ((k >>> 5) % 5) * 0.005, x, y },
+        { z: z + (0.04 + ((k >>> 8) % 9) * 0.008), w: 0.028 + ((k >>> 2) % 7) * 0.005, h: 0.015 + ((k >>> 5) % 5) * 0.004, x, y },
+      ], col || PAL.dark);
     }
     return this;
   };
   Mesh.prototype.cluster = function (pts, r, len) { pts.forEach(([x, y, z]) => this.engine(x, y, z, r, len)); return this; };
 
-  // 함선 종류별 모양 (+z가 뱃머리) — 가늘고 긴 선체, 겹친 장갑판, 비대칭 상부, 창과 엔진 묶음
+  // 함선 종류별 모양 (+z가 뱃머리) — 테이퍼·모따기 선체, 부드러운 법선, 건메탈+청동
   const BUILD = {
     shuttle(m) {
-      m.loft(HEX, [{ z: -1.25, w: 0.22, h: 0.16 }, { z: -0.85, w: 0.32, h: 0.24 }, { z: -0.2, w: 0.36, h: 0.26 }, { z: 0.45, w: 0.3, h: 0.22, y: 0.02 }, { z: 1.05, w: 0.16, h: 0.12 }, { z: 1.42, w: 0.03, h: 0.03 }], PAL.hull, { belly: PAL.dark });
-      m.belts(-0.9, 0.7, 5, 0.38, 0.28, PAL.hull2);
-      m.box(0.06, 0.3, -0.15, 0.12, 0.1, 0.32, PAL.hull2);
-      m.box(0.06, 0.38, -0.05, 0.08, 0.05, 0.16, PAL.glass, 0.7);
-      m.portRow(0.06, 0.42, -0.28, 0.18, 4, 0.9);
-      m.both(s => m.portRow(0.34 * s, 0.04, -0.55, 0.55, 5, 0.75));
-      m.both(s => { m.slab([[0.3 * s, -0.7], [0.92 * s, -1.05], [0.88 * s, -0.55], [0.32 * s, 0.35]], -0.04, 0.045, PAL.hull, PAL.hull2); m.box(0.72 * s, -0.02, -0.55, 0.08, 0.05, 0.22, PAL.accent); });
-      m.spine(-0.22, 0.34, -0.7, 0.55, 0.012, PAL.dark); m.spine(-0.18, 0.32, -0.55, 0.28, 0.008, PAL.hull2);
-      m.greeble(11, -0.8, 0.6, 0.28, 0.16, 8, PAL.dark);
-      m.engine(-0.12, 0.02, -1.25, 0.1, 0.22); m.engine(0.12, 0.02, -1.25, 0.1, 0.22); m.engine(0, -0.06, -1.22, 0.07, 0.16);
-      m.light(0, 0.12, 1.2, 0.04); m.both(s => m.light(0.7 * s, 0, -0.3, 0.035));
+      m.loft(CIR12, [
+        { z: -1.3, w: 0.15, h: 0.12 }, { z: -1.05, w: 0.26, h: 0.19 }, { z: -0.5, w: 0.32, h: 0.21 },
+        { z: 0.2, w: 0.28, h: 0.19, y: 0.015 }, { z: 0.8, w: 0.18, h: 0.13, y: 0.02 },
+        { z: 1.22, w: 0.08, h: 0.07 }, { z: 1.52, w: 0.01, h: 0.01 },
+      ], PAL.hull, { belly: PAL.dark, smooth: true });
+      m.belts(-0.85, 0.55, 4, 0.34, 0.23, PAL.hull2);
+      m.both(s => m.loft(CIR8, [{ z: -0.95, w: 0.018, h: 0.018, x: 0.3 * s, y: 0.05 }, { z: 0.9, w: 0.014, h: 0.014, x: 0.2 * s, y: 0.04 }], PAL.accent, { smooth: true }));
+      m.loft(CHAM, [
+        { z: -0.38, w: 0.08, h: 0.045, x: 0.05, y: 0.25 }, { z: 0.02, w: 0.1, h: 0.075, x: 0.06, y: 0.32 },
+        { z: 0.4, w: 0.06, h: 0.04, x: 0.05, y: 0.24 },
+      ], PAL.hull2, { frontCol: PAL.canopy, smooth: true });
+      m.portRow(0.06, 0.39, -0.22, 0.28, 4, 0.9);
+      m.both(s => {
+        m.loftX(CHAM, [
+          { x: 0.26 * s, h: 0.065, w: 0.3, y: -0.02, z: -0.12 }, { x: 0.72 * s, h: 0.04, w: 0.36, y: -0.03, z: -0.4 },
+          { x: 1.1 * s, h: 0.016, w: 0.16, y: -0.01, z: -0.62 },
+        ], PAL.hull, { smooth: true });
+        m.loft(CIR8, [{ z: -0.58, w: 0.048, h: 0.048, x: 0.78 * s, y: -0.02 }, { z: -0.22, w: 0.055, h: 0.042, x: 0.78 * s, y: -0.02 }], PAL.accent, { smooth: true });
+      });
+      m.spine(-0.16, 0.28, -0.78, 0.52, 0.01); m.spine(-0.12, 0.26, -0.62, 0.22, 0.007, PAL.hull2);
+      m.greeble(11, -0.85, 0.5, 0.26, 0.14, 8);
+      m.both(s => m.portRow(0.28 * s, 0.06, -0.5, 0.45, 5, 0.7));
+      m.engine(-0.11, 0.02, -1.3, 0.09, 0.24); m.engine(0.11, 0.02, -1.3, 0.09, 0.24); m.engine(0, -0.07, -1.24, 0.06, 0.16);
+      m.light(0, 0.07, 1.35, 0.035); m.both(s => m.light(0.98 * s, 0, -0.38, 0.03));
     },
     scout(m, sci) {
-      m.loft(HEX, [{ z: -1.4, w: 0.12, h: 0.1 }, { z: -0.8, w: 0.2, h: 0.14 }, { z: 0.2, w: 0.18, h: 0.13 }, { z: 1.0, w: 0.1, h: 0.08 }, { z: 1.55, w: 0.015, h: 0.015 }], PAL.hull, { belly: PAL.dark });
-      m.belts(-0.7, 0.8, 4, 0.22, 0.16, PAL.hull2);
-      m.box(0, 0.16, 0.05, 0.07, 0.04, 0.28, PAL.glass, 0.55);
-      m.portRow(0, 0.2, -0.35, 0.45, 5, 0.7);
-      m.both(s => m.slab([[0.16 * s, -0.85], [1.15 * s, -1.2], [1.2 * s, -0.85], [0.18 * s, 0.15]], 0.0, 0.03, PAL.hull, PAL.hull2));
-      m.both(s => m.box(0.7 * s, 0.02, -0.85, 0.1, 0.05, 0.28, sci ? PAL.lv : PAL.sky));
-      m.both(s => m.engine(0.55 * s, 0, -1.35, 0.08, 0.26));
-      if (sci) {
-        m.loft(OCT, [{ z: 0.35, w: 0, h: 0, x: -0.28, y: 0.18 }, { z: 0.48, w: 0.2, h: 0.2, x: -0.32, y: 0.2 }, { z: 0.62, w: 0.18, h: 0.18, x: -0.32, y: 0.2 }], PAL.lv);
-        m.spine(-0.32, 0.4, 0.55, 0.35, 0.01, PAL.dark);
-        m.portRow(-0.32, 0.32, 0.42, 0.58, 3, 0.6);
-      } else {
-        m.box(0.28, 0.12, 0.55, 0.06, 0.04, 0.22, PAL.sky); m.spine(0.3, 0.18, 0.7, 0.4, 0.01);
-      }
-      m.fin([[0.08, -1.2], [0.32, -1.35], [0.3, -1.05], [0.08, -0.5]], 0, 0.02, PAL.hull2);
-      m.greeble(sci ? 21 : 17, -0.9, 0.6, 0.14, 0.1, 6);
-      m.both(s => m.light(1.05 * s, 0, -0.95, 0.03)); m.light(0, 0.06, 1.4, 0.03);
+      const k = sci ? -1 : 1;
+      m.loft(CIR12, [
+        { z: -1.45, w: 0.09, h: 0.08 }, { z: -0.9, w: 0.16, h: 0.12 }, { z: 0.1, w: 0.15, h: 0.11 },
+        { z: 0.95, w: 0.09, h: 0.07 }, { z: 1.45, w: 0.035, h: 0.03 }, { z: 1.72, w: 0.008, h: 0.008 },
+      ], PAL.hull, { belly: PAL.dark, smooth: true });
+      m.belts(-0.7, 0.7, 3, 0.175, 0.13, PAL.hull2);
+      m.loft(CHAM, [{ z: -0.15, w: 0.05, h: 0.03, y: 0.14 }, { z: 0.35, w: 0.055, h: 0.04, y: 0.16 }, { z: 0.7, w: 0.03, h: 0.022, y: 0.12 }], PAL.canopy, { smooth: true, frontCol: PAL.canopy });
+      m.portRow(0, 0.2, -0.2, 0.45, 4, 0.65);
+      m.both(s => m.loftX(BLADE, [
+        { x: 0.12 * s, h: 0.03, w: 0.28, y: -0.01, z: -0.05 }, { x: 0.55 * s, h: 0.022, w: 0.42, y: -0.02, z: -0.35 },
+        { x: 0.95 * s, h: 0.01, w: 0.18, y: 0, z: -0.7 },
+      ], PAL.hull, { smooth: true }));
+      m.loft(CIR8, [{ z: 0.2, w: 0.05, h: 0.05, x: 0.22 * k, y: 0.02 }, { z: 0.7, w: 0.04, h: 0.04, x: 0.2 * k, y: 0.02 }], PAL.accent, { smooth: true });
+      if (sci) m.loft(CIR12, [{ z: -0.35, w: 0.07, h: 0.07, x: -0.28 * k, y: -0.02 }, { z: 0.15, w: 0.1, h: 0.09, x: -0.32 * k, y: -0.02 }, { z: 0.5, w: 0.06, h: 0.06, x: -0.28 * k, y: -0.02 }], PAL.hull2, { smooth: true });
+      m.spine(-0.06 * k, 0.18, -0.5, 0.55, 0.008); m.spine(-0.03 * k, 0.16, -0.35, 0.22, 0.006);
+      m.greeble(23, -0.8, 0.5, 0.14, 0.1, 6);
+      m.engine(-0.07, 0, -1.45, 0.07, 0.22); m.engine(0.07, 0, -1.45, 0.07, 0.22);
+      m.light(0, 0.04, 1.5, 0.03); m.both(s => m.light(0.7 * s, 0, -0.2, 0.025));
     },
     miner(m, big) {
-      const k = big ? 1.28 : 1;
-      m.loft(RECT, [{ z: -1.15 * k, w: 0.28 * k, h: 0.2 * k }, { z: -0.3 * k, w: 0.42 * k, h: 0.3 * k }, { z: 0.5 * k, w: 0.38 * k, h: 0.26 * k }, { z: 0.85 * k, w: 0.22 * k, h: 0.16 * k }, { z: 1.2 * k, w: 0.06 * k, h: 0.06 * k }], PAL.hull, { belly: PAL.dark });
-      m.belts(-0.8 * k, 0.55 * k, big ? 6 : 4, 0.45 * k, 0.32 * k, PAL.hull2);
-      m.box(0.08 * k, 0.34 * k, 0.15 * k, 0.14 * k, 0.1 * k, 0.2 * k, PAL.hull2);
-      m.box(0.08 * k, 0.42 * k, 0.2 * k, 0.1 * k, 0.05 * k, 0.12 * k, PAL.glass, 0.65);
-      m.portRow(0.08 * k, 0.46 * k, 0.02 * k, 0.32 * k, 3, k);
-      m.box(0.58 * k, 0.02, -0.15 * k, 0.2 * k, 0.22 * k, 0.42 * k, PAL.accent);
-      m.box(-0.62 * k, -0.04, -0.05 * k, 0.22 * k, 0.26 * k, 0.5 * k, PAL.hull2);
-      if (big) { m.box(0.85 * k, 0.0, -0.2 * k, 0.16 * k, 0.18 * k, 0.35 * k, PAL.accent); m.box(-0.9 * k, -0.02, -0.15 * k, 0.16 * k, 0.2 * k, 0.38 * k, PAL.sky); }
-      m.both(s => {
-        m.box(0.22 * s * k, -0.06, 0.95 * k, 0.06 * k, 0.06 * k, 0.28 * k, PAL.dark);
-        m.box(0.22 * s * k, -0.06, 1.28 * k, 0.04 * k, 0.04 * k, 0.12 * k, PAL.gold);
-        m.light(0.22 * s * k, -0.06, 1.4 * k, 0.04 * k);
-      });
-      m.greeble(big ? 41 : 31, -0.7 * k, 0.4 * k, 0.3 * k, 0.16 * k, big ? 12 : 8, PAL.dark);
-      m.cluster([[-0.2 * k, 0.06, -1.15 * k], [0.2 * k, 0.06, -1.15 * k], [0, -0.08, -1.12 * k]], 0.1 * k, 0.22);
-      if (big) m.both(s => m.engine(0.38 * s * k, -0.04, -1.1 * k, 0.08 * k, 0.18));
-      m.portRow(0.44 * k, 0.16 * k, -0.4 * k, 0.2 * k, 3, 0.8 * k);
+      const k = big ? 1.18 : 1, side = big ? -1 : 1;
+      m.loft(CIR12, [
+        { z: -1.2 * k, w: 0.22 * k, h: 0.18 * k }, { z: -0.7 * k, w: 0.38 * k, h: 0.28 * k }, { z: 0.1 * k, w: 0.4 * k, h: 0.3 * k },
+        { z: 0.75 * k, w: 0.26 * k, h: 0.2 * k }, { z: 1.15 * k, w: 0.12 * k, h: 0.1 * k }, { z: 1.35 * k, w: 0.02 * k, h: 0.02 * k },
+      ], PAL.hull, { belly: PAL.dark, smooth: true });
+      m.belts(-0.7 * k, 0.55 * k, 5, 0.42 * k, 0.32 * k, PAL.hull2);
+      m.loft(CHAM, [{ z: -0.15 * k, w: 0.1 * k, h: 0.06 * k, x: -0.04, y: 0.32 * k }, { z: 0.25 * k, w: 0.12 * k, h: 0.09 * k, x: -0.05, y: 0.4 * k }, { z: 0.5 * k, w: 0.07 * k, h: 0.05 * k, x: -0.04, y: 0.3 * k }], PAL.hull2, { frontCol: PAL.canopy, smooth: true });
+      m.portRow(-0.05, 0.48 * k, -0.05 * k, 0.38 * k, 3, 0.85 * k);
+      m.loft(CIR12, [
+        { z: -0.35 * k, w: 0.16 * k, h: 0.16 * k, x: 0.52 * k * side, y: -0.02 },
+        { z: 0.15 * k, w: 0.24 * k, h: 0.22 * k, x: 0.58 * k * side, y: -0.02 },
+        { z: 0.65 * k, w: 0.16 * k, h: 0.16 * k, x: 0.52 * k * side, y: -0.02 },
+      ], PAL.hull2, { smooth: true });
+      m.loftX(CHAM, [
+        { x: 0.32 * k * side, h: 0.05 * k, w: 0.08 * k, y: 0.06, z: 0.1 * k },
+        { x: 0.5 * k * side, h: 0.04 * k, w: 0.07 * k, y: 0.04, z: 0.1 * k },
+      ], PAL.dark, { smooth: true });
+      m.mast(0.5 * k * side, 0.18 * k, 0.2 * k, 0.35 * k, 0.025 * k); m.spine(0.5 * k * side, 0.52 * k, 0.15 * k, 0.28 * k, 0.01);
+      m.greeble(41, -0.8 * k, 0.5 * k, 0.3 * k, 0.16 * k, 9);
+      m.portRow(0.1 * k, 0.12 * k, -0.6 * k, 0.5 * k, 5, 0.7 * k);
+      m.cluster([[-0.14 * k, 0.04, -1.2 * k], [0.14 * k, 0.04, -1.2 * k], [0, -0.1 * k, -1.16 * k]], 0.09 * k, 0.22 * k);
+      if (big) m.loft(CIR12, [{ z: -0.45 * k, w: 0.1 * k, h: 0.08 * k, y: 0.28 * k }, { z: 0.2 * k, w: 0.14 * k, h: 0.1 * k, y: 0.32 * k }, { z: 0.55 * k, w: 0.08 * k, h: 0.06 * k, y: 0.26 * k }], PAL.hull2, { smooth: true });
+      m.light(0, 0.08, 1.15 * k, 0.04); m.both(s => m.light(0.45 * k * s, 0, -0.2, 0.03));
     },
     escort(m) {
-      m.loft(HEX, [{ z: -1.2, w: 0.24, h: 0.14 }, { z: -0.55, w: 0.36, h: 0.2 }, { z: 0.15, w: 0.3, h: 0.16, y: -0.01 }, { z: 0.85, w: 0.16, h: 0.1, y: -0.03 }, { z: 1.4, w: 0.03, h: 0.03, y: -0.04 }], PAL.hull, { belly: PAL.dark });
-      m.belts(-0.8, 0.5, 5, 0.38, 0.22, PAL.hull2);
-      m.box(-0.08, 0.24, -0.25, 0.1, 0.1, 0.28, PAL.hull2);
-      m.mast(-0.08, 0.32, -0.2, 0.22, 0.02, PAL.dark);
-      m.spine(-0.1, 0.52, -0.15, 0.25, 0.008);
-      m.box(-0.08, 0.28, -0.15, 0.07, 0.04, 0.12, PAL.glass, 0.6);
-      m.both(s => { m.slab([[0.28 * s, -0.85], [0.95 * s, -0.55], [1.05 * s, -0.15], [0.32 * s, 0.35]], -0.02, 0.04, PAL.hull); m.box(0.88 * s, 0.0, 0.05, 0.07, 0.06, 0.32, PAL.red, 0.85); });
-      m.both(s => m.fin([[0.08, -1.05], [0.36, -1.2], [0.34, -0.95], [0.1, -0.45]], 0.22 * s, 0.025, PAL.red));
-      m.portRow(0, 0.14, -0.6, 0.4, 5, 0.7);
-      m.greeble(53, -0.7, 0.4, 0.24, 0.1, 7);
-      m.engine(-0.14, 0.02, -1.2, 0.1, 0.24); m.engine(0.14, 0.02, -1.2, 0.1, 0.24); m.engine(0, -0.08, -1.15, 0.07, 0.18);
-      m.both(s => m.light(0.95 * s, 0.04, 0.35, 0.03)); m.light(0, 0.02, 1.25, 0.03);
+      m.loft(BLADE, [
+        { z: -1.15, w: 0.2, h: 0.14 }, { z: -0.65, w: 0.34, h: 0.22 }, { z: 0.15, w: 0.3, h: 0.2 },
+        { z: 0.85, w: 0.16, h: 0.12 }, { z: 1.28, w: 0.05, h: 0.045 }, { z: 1.5, w: 0.01, h: 0.01 },
+      ], PAL.hull, { belly: PAL.dark, smooth: true });
+      m.belts(-0.7, 0.6, 4, 0.36, 0.23, PAL.hull2);
+      m.loft(CHAM, [{ z: -0.2, w: 0.08, h: 0.05, y: 0.22 }, { z: 0.25, w: 0.09, h: 0.07, y: 0.28 }, { z: 0.55, w: 0.05, h: 0.04, y: 0.2 }], PAL.hull2, { frontCol: PAL.canopy, smooth: true });
+      m.portRow(0, 0.34, -0.1, 0.4, 4, 0.8);
+      m.both(s => {
+        m.loftX(CHAM, [
+          { x: 0.28 * s, h: 0.07, w: 0.32, y: -0.02, z: -0.1 }, { x: 0.8 * s, h: 0.05, w: 0.4, y: -0.04, z: -0.25 },
+          { x: 1.15 * s, h: 0.02, w: 0.2, y: 0, z: -0.15 },
+        ], PAL.hull, { smooth: true });
+        m.loft(CIR8, [{ z: 0.05, w: 0.05, h: 0.05, x: 0.85 * s, y: 0.02 }, { z: 0.4, w: 0.04, h: 0.04, x: 0.85 * s, y: 0.02 }], PAL.red, { smooth: true });
+      });
+      m.spine(-0.1, 0.3, -0.55, 0.4, 0.01); m.greeble(53, -0.7, 0.5, 0.26, 0.14, 8);
+      m.both(s => m.portRow(0.28 * s, 0.08, -0.45, 0.4, 4, 0.7));
+      m.engine(-0.14, 0.03, -1.15, 0.085, 0.22); m.engine(0.14, 0.03, -1.15, 0.085, 0.22); m.engine(0, -0.08, -1.1, 0.06, 0.16);
+      m.light(0, 0.06, 1.3, 0.035); m.both(s => m.light(1.0 * s, 0.02, -0.1, 0.03));
     },
     hauler(m) {
-      m.loft(RECT, [{ z: -1.45, w: 0.1, h: 0.1 }, { z: 0.7, w: 0.09, h: 0.09 }], PAL.hull2);
-      m.loft(HEX, [{ z: 0.65, w: 0.26, h: 0.18 }, { z: 1.05, w: 0.28, h: 0.2 }, { z: 1.4, w: 0.12, h: 0.1 }, { z: 1.55, w: 0.03, h: 0.03 }], PAL.hull, { frontCol: PAL.glass });
-      m.box(0.05, 0.2, 1.05, 0.1, 0.07, 0.16, PAL.hull2);
-      m.portRow(0.05, 0.26, 0.92, 1.18, 3, 0.8);
-      const mods = [[0.42, 0.14, 0.45, PAL.accent], [-0.44, -0.1, 0.4, PAL.hull], [0.42, 0.14, -0.05, PAL.sky], [-0.44, -0.1, -0.1, PAL.accent], [0.42, 0.14, -0.55, PAL.hull], [-0.44, -0.1, -0.6, PAL.hull2], [0.42, 0.12, -1.0, PAL.accent], [-0.44, -0.08, -1.05, PAL.sky]];
-      mods.forEach(([x, y, z, c]) => m.box(x, y, z, 0.2, 0.16, 0.2, c));
-      m.box(0, 0, -1.5, 0.36, 0.22, 0.1, PAL.hull);
-      m.cluster([[0.18, 0.1, -1.62], [-0.18, 0.1, -1.62], [0.18, -0.1, -1.62], [-0.18, -0.1, -1.62], [0, 0, -1.65]], 0.08, 0.16);
-      m.spine(0.08, 0.28, 0.85, 0.35, 0.01); m.greeble(61, -1.2, 0.5, 0.12, 0.08, 6);
-      m.light(0, 0.08, 1.48, 0.04);
+      m.loft(CIR12, [
+        { z: -1.55, w: 0.1, h: 0.1 }, { z: -1.2, w: 0.16, h: 0.14 }, { z: 0.2, w: 0.15, h: 0.13 },
+        { z: 1.0, w: 0.12, h: 0.1 }, { z: 1.45, w: 0.07, h: 0.06 }, { z: 1.65, w: 0.015, h: 0.015 },
+      ], PAL.hull, { belly: PAL.dark, smooth: true });
+      m.loft(CHAM, [{ z: 0.85, w: 0.07, h: 0.04, y: 0.16 }, { z: 1.15, w: 0.08, h: 0.06, y: 0.2 }, { z: 1.35, w: 0.045, h: 0.03, y: 0.14 }], PAL.hull2, { frontCol: PAL.canopy, smooth: true });
+      m.portRow(0, 0.26, 0.95, 1.22, 3, 0.75);
+      [-0.7, 0.05, 0.75].forEach((z, i) => {
+        m.both(s => m.loft(CIR12, [
+          { z: z - 0.28, w: 0.16, h: 0.15, x: 0.36 * s, y: -0.05 },
+          { z, w: 0.22, h: 0.2, x: 0.42 * s, y: -0.05 },
+          { z: z + 0.28, w: 0.16, h: 0.15, x: 0.36 * s, y: -0.05 },
+        ], i === 1 ? PAL.hull2 : PAL.hull, { smooth: true }));
+      });
+      m.both(s => m.loftX(CHAM, [
+        { x: 0.14 * s, h: 0.03, w: 0.05, y: 0, z: 0.05 }, { x: 0.34 * s, h: 0.025, w: 0.04, y: -0.02, z: 0.05 },
+      ], PAL.dark, { smooth: true }));
+      m.spine(0.08, 0.2, -0.9, 0.5, 0.009); m.greeble(61, -1.1, 0.9, 0.18, 0.12, 8);
+      m.cluster([[-0.12, 0.04, -1.55], [0.12, 0.04, -1.55], [0, -0.08, -1.5]], 0.08, 0.22);
+      m.light(0, 0.06, 1.5, 0.03); m.both(s => m.light(0.42 * s, 0.02, 0.05, 0.028));
     },
     cruiser(m) {
-      m.loft(HEX, [{ z: -1.45, w: 0.28, h: 0.16 }, { z: -0.8, w: 0.46, h: 0.26 }, { z: 0.1, w: 0.42, h: 0.24 }, { z: 0.85, w: 0.26, h: 0.16, y: -0.02 }, { z: 1.35, w: 0.1, h: 0.08, y: -0.04 }, { z: 1.65, w: 0.02, h: 0.02, y: -0.05 }], PAL.hull, { belly: PAL.dark });
-      m.belts(-1.0, 0.7, 7, 0.48, 0.28, PAL.hull2);
-      m.loft(HEX, [{ z: -0.55, w: 0.14, h: 0.08, x: 0.08, y: 0.3 }, { z: -0.1, w: 0.18, h: 0.14, x: 0.1, y: 0.36 }, { z: 0.35, w: 0.1, h: 0.08, x: 0.08, y: 0.3 }], PAL.hull2, { frontCol: PAL.glass });
-      m.portRow(0.1, 0.46, -0.4, 0.25, 5, 0.85);
-      m.mast(0.1, 0.48, -0.15, 0.2, 0.025); m.spine(0.12, 0.66, -0.05, 0.4, 0.01); m.spine(0.06, 0.62, 0.05, 0.22, 0.008);
-      m.both(s => { m.slab([[0.38 * s, -1.05], [1.15 * s, -1.15], [1.2 * s, -0.6], [0.42 * s, 0.2]], -0.05, 0.05, PAL.hull); m.box(1.05 * s, -0.02, -0.55, 0.1, 0.1, 0.38, PAL.sky, 0.85); });
-      m.greeble(71, -1.0, 0.6, 0.32, 0.14, 12);
-      m.portRow(0, 0.14, -0.8, 0.7, 7, 0.75);
-      m.cluster([[-0.22, 0.06, -1.45], [0.22, 0.06, -1.45], [-0.22, -0.1, -1.42], [0.22, -0.1, -1.42], [0, 0.02, -1.48]], 0.1, 0.26);
-      m.both(s => m.light(1.1 * s, 0.06, -0.2, 0.04)); m.light(0, 0.04, 1.5, 0.04);
+      m.loft(CIR12, [
+        { z: -1.55, w: 0.2, h: 0.15 }, { z: -0.95, w: 0.38, h: 0.24 }, { z: -0.15, w: 0.42, h: 0.26 },
+        { z: 0.7, w: 0.3, h: 0.2 }, { z: 1.25, w: 0.14, h: 0.11 }, { z: 1.62, w: 0.012, h: 0.012 },
+      ], PAL.hull, { belly: PAL.dark, smooth: true });
+      m.belts(-1.05, 0.7, 6, 0.44, 0.28, PAL.hull2);
+      m.both(s => m.loft(CIR8, [{ z: -1.0, w: 0.02, h: 0.02, x: 0.4 * s, y: 0.06 }, { z: 1.0, w: 0.016, h: 0.016, x: 0.26 * s, y: 0.05 }], PAL.accent, { smooth: true }));
+      m.loft(CHAM, [{ z: -0.55, w: 0.12, h: 0.07, x: -0.08, y: 0.3 }, { z: 0.05, w: 0.14, h: 0.11, x: -0.1, y: 0.42 }, { z: 0.4, w: 0.08, h: 0.06, x: -0.08, y: 0.3 }], PAL.hull2, { frontCol: PAL.canopy, smooth: true });
+      m.mast(-0.1, 0.52, -0.1, 0.22, 0.028); m.spine(-0.1, 0.74, -0.05, 0.32, 0.01);
+      m.portRow(-0.1, 0.52, -0.4, 0.25, 5, 0.9);
+      m.both(s => {
+        m.loftX(CHAM, [
+          { x: 0.36 * s, h: 0.06, w: 0.55, y: -0.04, z: -0.25 }, { x: 0.95 * s, h: 0.045, w: 0.48, y: -0.05, z: -0.45 },
+          { x: 1.28 * s, h: 0.018, w: 0.22, y: -0.02, z: -0.7 },
+        ], PAL.hull, { smooth: true });
+        m.loft(CIR8, [{ z: -0.15, w: 0.055, h: 0.055, x: 0.9 * s, y: 0.02 }, { z: 0.25, w: 0.045, h: 0.045, x: 0.9 * s, y: 0.02 }], PAL.sky, { smooth: true });
+      });
+      m.greeble(71, -1.0, 0.7, 0.34, 0.16, 12);
+      m.portRow(0.18, 0.14, -0.8, 0.6, 7, 0.75);
+      m.cluster([[-0.2, 0.06, -1.55], [0.2, 0.06, -1.55], [-0.2, -0.1, -1.5], [0.2, -0.1, -1.5]], 0.09, 0.24);
+      m.both(s => m.light(1.1 * s, 0.04, -0.3, 0.04)); m.light(0, 0.06, 1.45, 0.04);
     },
     heavy(m) {
-      m.loft(HEX, [{ z: -1.5, w: 0.36, h: 0.2 }, { z: -0.7, w: 0.55, h: 0.32 }, { z: 0.25, w: 0.48, h: 0.28 }, { z: 1.0, w: 0.28, h: 0.16 }, { z: 1.55, w: 0.08, h: 0.06 }, { z: 1.7, w: 0.02, h: 0.02 }], PAL.hull, { belly: PAL.dark });
-      m.belts(-1.1, 0.8, 8, 0.58, 0.34, PAL.hull2);
-      m.loft(RECT, [{ z: -0.7, w: 0.18, h: 0.08, x: -0.1, y: 0.38 }, { z: 0.1, w: 0.2, h: 0.14, x: -0.12, y: 0.48 }, { z: 0.4, w: 0.1, h: 0.08, x: -0.1, y: 0.4 }], PAL.hull2, { frontCol: PAL.glass });
-      m.mast(-0.12, 0.6, -0.2, 0.22, 0.03); m.spine(-0.12, 0.82, -0.15, 0.35, 0.012); m.spine(-0.06, 0.76, 0.0, 0.2, 0.008);
-      m.portRow(-0.12, 0.58, -0.55, 0.25, 6, 1);
-      m.both(s => { m.slab([[0.48 * s, -1.15], [1.15 * s, -0.95], [1.1 * s, -0.2], [0.46 * s, 0.45]], -0.06, 0.07, PAL.hull); m.box(1.0 * s, 0.04, -0.5, 0.12, 0.1, 0.32, PAL.red, 0.85); });
-      m.greeble(83, -1.1, 0.7, 0.4, 0.16, 14);
-      m.portRow(0.2, 0.2, -0.8, 0.6, 6, 0.8);
-      m.cluster([[-0.28, 0.08, -1.5], [0.28, 0.08, -1.5], [-0.28, -0.1, -1.46], [0.28, -0.1, -1.46], [0, 0.04, -1.52]], 0.11, 0.28);
-      m.engine(0, 0.22, -1.4, 0.08, 0.2);
-      m.both(s => m.light(1.08 * s, 0.1, -0.2, 0.045)); m.light(0, 0.06, 1.55, 0.045);
+      m.loft(CIR12, [
+        { z: -1.55, w: 0.28, h: 0.18 }, { z: -0.8, w: 0.5, h: 0.3 }, { z: 0.15, w: 0.46, h: 0.28 },
+        { z: 0.95, w: 0.26, h: 0.16 }, { z: 1.45, w: 0.08, h: 0.06 }, { z: 1.7, w: 0.015, h: 0.015 },
+      ], PAL.hull, { belly: PAL.dark, smooth: true });
+      m.belts(-1.15, 0.8, 7, 0.52, 0.32, PAL.hull2);
+      m.loft(CHAM, [{ z: -0.7, w: 0.14, h: 0.07, x: -0.1, y: 0.34 }, { z: 0.05, w: 0.18, h: 0.13, x: -0.12, y: 0.48 }, { z: 0.45, w: 0.09, h: 0.07, x: -0.1, y: 0.36 }], PAL.hull2, { frontCol: PAL.canopy, smooth: true });
+      m.mast(-0.12, 0.6, -0.15, 0.24, 0.03); m.spine(-0.12, 0.84, -0.1, 0.38, 0.012); m.spine(-0.06, 0.78, 0.05, 0.2, 0.008);
+      m.portRow(-0.12, 0.6, -0.55, 0.3, 6, 1);
+      m.both(s => {
+        m.loft(CIR12, [
+          { z: -1.0, w: 0.1, h: 0.09, x: 0.62 * s, y: -0.04 }, { z: -0.35, w: 0.16, h: 0.13, x: 0.72 * s, y: -0.04 },
+          { z: 0.35, w: 0.12, h: 0.1, x: 0.62 * s, y: -0.04 },
+        ], PAL.hull2, { smooth: true });
+        m.loftX(CHAM, [{ x: 0.42 * s, h: 0.05, w: 0.1, y: 0, z: -0.3 }, { x: 0.62 * s, h: 0.04, w: 0.08, y: -0.02, z: -0.3 }], PAL.dark, { smooth: true });
+      });
+      m.greeble(83, -1.15, 0.8, 0.42, 0.18, 14);
+      m.portRow(0.22, 0.18, -0.8, 0.6, 6, 0.8);
+      m.cluster([[-0.26, 0.08, -1.55], [0.26, 0.08, -1.55], [-0.26, -0.1, -1.5], [0.26, -0.1, -1.5], [0, 0.04, -1.58]], 0.1, 0.26);
+      m.engine(0, 0.22, -1.45, 0.07, 0.18);
+      m.both(s => m.light(0.85 * s, 0.06, -0.2, 0.04)); m.light(0, 0.05, 1.5, 0.04);
     },
     battleship(m) {
-      m.loft(HEX, [{ z: -1.7, w: 0.4, h: 0.22 }, { z: -0.9, w: 0.62, h: 0.36 }, { z: 0.2, w: 0.58, h: 0.32 }, { z: 1.05, w: 0.36, h: 0.2 }, { z: 1.6, w: 0.16, h: 0.1 }, { z: 1.9, w: 0.04, h: 0.03 }], PAL.hull, { belly: PAL.dark });
-      m.belts(-1.3, 1.0, 10, 0.66, 0.38, PAL.hull2);
-      m.loft(RECT, [{ z: -1.0, w: 0.28, h: 0.1, x: 0.1, y: 0.38 }, { z: 0.5, w: 0.22, h: 0.1, x: 0.12, y: 0.4 }], PAL.hull2);
-      m.loft(HEX, [{ z: -0.7, w: 0.16, h: 0.12, x: 0.14, y: 0.58 }, { z: -0.2, w: 0.2, h: 0.18, x: 0.16, y: 0.68 }, { z: 0.15, w: 0.1, h: 0.08, x: 0.14, y: 0.6 }], PAL.hull, { frontCol: PAL.glass });
-      m.mast(0.16, 0.84, -0.35, 0.22, 0.03); m.spine(0.18, 1.04, -0.25, 0.45, 0.012); m.spine(0.1, 0.98, -0.1, 0.28, 0.009); m.spine(0.22, 0.95, 0.0, 0.2, 0.008);
-      m.portRow(0.16, 0.8, -0.55, 0.05, 6, 1.1);
-      for (let i = 0; i < 4; i++) m.both(s => { m.box(0.28 * s, 0.5, 0.7 - i * 0.4, 0.08, 0.06, 0.1, PAL.dark); m.box(0.28 * s, 0.5, 0.82 - i * 0.4, 0.018, 0.018, 0.14, PAL.hull2); });
-      m.both(s => { m.slab([[0.55 * s, -1.35], [1.2 * s, -1.2], [1.15 * s, -0.35], [0.52 * s, 0.3]], -0.08, 0.08, PAL.hull); m.box(1.05 * s, -0.06, -0.7, 0.12, 0.12, 0.36, PAL.accent, 0.85); });
-      m.greeble(99, -1.3, 0.9, 0.45, 0.18, 18);
-      m.portRow(0, 0.18, -1.1, 0.9, 9, 0.85);
-      [[0.32, 0.12], [-0.32, 0.12], [0.32, -0.14], [-0.32, -0.14], [0.14, 0.02], [-0.14, 0.02], [0, 0.2], [0, -0.2]].forEach(([x, y]) => m.engine(x, y, -1.7, 0.1, 0.28));
-      m.both(s => m.light(1.12 * s, 0.08, -0.35, 0.05)); m.light(0, 0.08, 1.75, 0.05);
+      m.loft(CIR12, [
+        { z: -1.85, w: 0.32, h: 0.2 }, { z: -1.15, w: 0.58, h: 0.34 }, { z: -0.2, w: 0.62, h: 0.36 },
+        { z: 0.7, w: 0.42, h: 0.26 }, { z: 1.35, w: 0.2, h: 0.14 }, { z: 1.85, w: 0.06, h: 0.05 }, { z: 2.05, w: 0.012, h: 0.012 },
+      ], PAL.hull, { belly: PAL.dark, smooth: true });
+      m.belts(-1.4, 1.0, 9, 0.64, 0.38, PAL.hull2);
+      m.both(s => m.loft(CIR8, [{ z: -1.4, w: 0.024, h: 0.024, x: 0.58 * s, y: 0.08 }, { z: 1.2, w: 0.018, h: 0.018, x: 0.32 * s, y: 0.06 }], PAL.accent, { smooth: true }));
+      m.loft(CHAM, [
+        { z: -0.7, w: 0.16, h: 0.1, x: -0.14, y: 0.42 }, { z: 0.05, w: 0.2, h: 0.16, x: -0.16, y: 0.6 },
+        { z: 0.45, w: 0.12, h: 0.1, x: -0.14, y: 0.48 },
+      ], PAL.hull2, { frontCol: PAL.canopy, smooth: true });
+      m.mast(-0.16, 0.76, -0.15, 0.32, 0.036); m.spine(-0.16, 1.08, -0.1, 0.45, 0.014); m.spine(-0.08, 1.0, 0.1, 0.28, 0.01);
+      m.portRow(-0.16, 0.74, -0.55, 0.3, 7, 1.1);
+      m.both(s => {
+        m.loftX(CHAM, [
+          { x: 0.5 * s, h: 0.1, w: 0.7, y: -0.04, z: -0.3 }, { x: 1.15 * s, h: 0.07, w: 0.55, y: -0.06, z: -0.55 },
+          { x: 1.45 * s, h: 0.025, w: 0.22, y: -0.02, z: -0.85 },
+        ], PAL.hull, { smooth: true });
+        m.loft(CIR8, [{ z: -0.2, w: 0.07, h: 0.07, x: 1.05 * s, y: 0.04 }, { z: 0.3, w: 0.055, h: 0.055, x: 1.05 * s, y: 0.04 }], PAL.red, { smooth: true });
+      });
+      m.greeble(97, -1.4, 1.0, 0.5, 0.2, 18);
+      m.portRow(0.22, 0.2, -1.1, 0.9, 10, 0.85);
+      m.cluster([
+        [-0.32, 0.1, -1.85], [0.32, 0.1, -1.85], [-0.32, -0.1, -1.8], [0.32, -0.1, -1.8],
+        [-0.12, 0.02, -1.9], [0.12, 0.02, -1.9], [0, 0.2, -1.78],
+      ], 0.1, 0.28);
+      m.both(s => m.light(1.25 * s, 0.06, -0.35, 0.05)); m.light(0, 0.08, 1.85, 0.05);
     },
     capsule(m) {
-      m.loft(OCT, [{ z: -0.45, w: 0.1, h: 0.1 }, { z: -0.2, w: 0.28, h: 0.28 }, { z: 0.22, w: 0.26, h: 0.26 }, { z: 0.48, w: 0.05, h: 0.05 }], PAL.hull);
-      m.box(0, 0.16, 0.05, 0.1, 0.06, 0.12, PAL.glass, 0.7);
-      m.port(0, 0.2, 0.05, 1); m.engine(0, 0, -0.45, 0.1, 0.12); m.spine(0.08, 0.22, -0.1, 0.18, 0.008);
+      m.loft(CIR12, [{ z: -0.45, w: 0.08, h: 0.08 }, { z: -0.18, w: 0.26, h: 0.26 }, { z: 0.22, w: 0.24, h: 0.24 }, { z: 0.48, w: 0.04, h: 0.04 }], PAL.hull, { smooth: true });
+      m.loft(CHAM, [{ z: -0.05, w: 0.08, h: 0.04, y: 0.2 }, { z: 0.15, w: 0.09, h: 0.05, y: 0.22 }], PAL.canopy, { smooth: true });
+      m.port(0, 0.26, 0.08, 1); m.engine(0, 0, -0.45, 0.09, 0.12); m.spine(0.08, 0.24, -0.1, 0.16, 0.008);
     },
   };
 
@@ -243,38 +346,40 @@
   }
 
   // ---------- WebGL ----------
-  const VS = `attribute vec3 p;attribute vec3 n;attribute vec3 c;attribute float e;uniform mat4 M;uniform mat4 P;varying vec3 vN;varying vec3 vC;varying float vE;varying vec3 vP;
-void main(){vec4 w=M*vec4(p,1.0);vP=w.xyz;vN=mat3(M)*n;vC=c;vE=e;gl_Position=P*w;}`;
-  const FS = `precision mediump float;varying vec3 vN;varying vec3 vC;varying float vE;varying vec3 vP;
-void main(){vec3 N=normalize(vN);vec3 V=normalize(-vP);if(dot(N,V)<0.0)N=-N;vec3 L=normalize(vec3(-0.45,0.75,0.55));vec3 L2=normalize(vec3(0.7,-0.25,-0.45));
-float d=max(dot(N,L),0.0);float d2=max(dot(N,L2),0.0);vec3 H=normalize(L+V);float sp=pow(max(dot(N,H),0.0),36.0);float rim=pow(1.0-max(dot(N,V),0.0),3.0);
-vec3 col=vC*(0.16+0.9*d)+vC*vec3(0.30,0.40,0.62)*d2*0.55+vec3(1.0,0.88,0.74)*sp*0.38+vec3(0.55,0.70,1.0)*rim*0.32;
-col=mix(col,vC*1.15+vec3(0.02,0.05,0.12),vE);gl_FragColor=vec4(pow(col,vec3(0.95)),1.0);}`;
-  // 우주 화면용: 어두운 성운 배경에서 선체가 드러나도록 환경광·림라이트를 밝게 (정비고 셰이더는 그대로)
-  // 우주 화면용: 별빛에 한 쪽이 옅게 밝힌 어두운 금속 회색-푸른 선체. 정비고 셰이더는 그대로.
-  const FS_BAKE = `precision mediump float;varying vec3 vN;varying vec3 vC;varying float vE;varying vec3 vP;
-void main(){vec3 N=normalize(vN);vec3 V=normalize(-vP);if(dot(N,V)<0.0)N=-N;
-vec3 L=normalize(vec3(-0.7,0.35,0.45));vec3 L2=normalize(vec3(0.55,0.15,-0.35));
+  const VS = `attribute vec3 p;attribute vec3 n;attribute vec3 c;attribute float e;uniform mat4 M;uniform mat4 P;varying vec3 vN;varying vec3 vC;varying float vE;varying vec3 vP;varying vec3 vPo;
+void main(){vec4 w=M*vec4(p,1.0);vP=w.xyz;vPo=p;vN=mat3(M)*n;vC=c;vE=e;gl_Position=P*w;}`;
+  const LIGHT_FN = `float pln(vec2 uv){vec2 f=min(fract(uv),1.0-fract(uv));return smoothstep(0.0,0.055,min(f.x,f.y));}`;
+  const LIGHT = `vec3 N=normalize(vN);vec3 V=normalize(-vP);if(dot(N,V)<0.0)N=-N;
+vec3 L=normalize(uL);vec3 L2=normalize(uL2);
 float d=max(dot(N,L),0.0);float d2=max(dot(N,L2),0.0);vec3 H=normalize(L+V);
-float sp=pow(max(dot(N,H),0.0),48.0);float rim=pow(1.0-max(dot(N,V),0.0),4.0);
-vec3 alb=vC*vec3(0.95,0.97,1.06);
-vec3 col=alb*(0.28+0.86*d)+alb*vec3(0.25,0.35,0.55)*d2*0.32+vec3(0.75,0.82,0.95)*sp*0.28+vec3(0.55,0.68,0.90)*rim*0.32;
-col=mix(col,vC*1.05+vec3(0.02,0.04,0.10),vE);gl_FragColor=vec4(pow(min(col,vec3(1.0)),vec3(1.02)),1.0);}`;
-  // 우주 화면 실시간 3D: 항성 방향의 키 라이트·스펙큘러, 차가운 림/필, 발광부(창문·항해등)
-  const FS_LIVE = `precision mediump float;varying vec3 vN;varying vec3 vC;varying float vE;varying vec3 vP;
-uniform vec3 uKey;uniform vec3 uFill;uniform vec3 uRim;uniform vec3 uTint;
-void main(){vec3 N=normalize(vN);vec3 V=normalize(-vP);if(dot(N,V)<0.0)N=-N;
-vec3 L=normalize(uKey);vec3 L2=normalize(uFill);
-float d=max(dot(N,L),0.0);float d2=max(dot(N,L2),0.0);vec3 H=normalize(L+V);
-float sp=pow(max(dot(N,H),0.0),40.0);float rim=pow(1.0-max(dot(N,V),0.0),2.6);
-vec3 alb=vC*uTint;
-vec3 col=alb*(0.20+1.40*d)+alb*vec3(0.30,0.44,0.66)*d2*0.62+vec3(1.0,0.97,0.90)*sp*1.05+uRim*rim*0.85;
-col=mix(col,max(alb*1.2,vec3(0.45,0.62,0.95)),vE);gl_FragColor=vec4(min(col,vec3(1.0)),1.0);}`;
+float sp=pow(max(dot(N,H),0.0),52.0);float fres=pow(1.0-max(dot(N,V),0.0),2.7);
+vec3 wN=abs(N);wN/=(wN.x+wN.y+wN.z+0.0001);
+float panel=pln(vPo.yz*4.4)*wN.x+pln(vPo.xz*4.4)*wN.y+pln(vPo.xy*4.4)*wN.z;
+float plate=pln(vPo.yz*1.2)*wN.x+pln(vPo.xz*1.2)*wN.y+pln(vPo.xy*1.2)*wN.z;
+vec3 alb=vC*uTint*(0.76+0.24*panel)*(0.84+0.16*plate);
+vec3 R=reflect(-V,N);float up=clamp(R.y*0.5+0.5,0.0,1.0);
+vec3 env=mix(vec3(0.05,0.055,0.07),vec3(0.46,0.54,0.66),up*up);
+env+=vec3(1.0,0.94,0.8)*pow(max(dot(R,L),0.0),18.0)*0.75;
+vec3 col=alb*(0.14+0.70*d)+alb*vec3(0.38,0.40,0.46)*d2*0.32+vec3(1.0,0.97,0.9)*sp*1.05+env*(0.12+0.40*fres)+uRim*fres*0.55;
+col=mix(col,max(vC*1.2,vec3(1.0,0.82,0.45)),vE);`;
+  const FS = `precision mediump float;varying vec3 vN;varying vec3 vC;varying float vE;varying vec3 vP;varying vec3 vPo;
+` + LIGHT_FN + `
+const vec3 uL=vec3(-0.45,0.78,0.52);const vec3 uL2=vec3(0.65,-0.15,-0.4);const vec3 uRim=vec3(0.5,0.68,0.95);const vec3 uTint=vec3(1.0);
+void main(){` + LIGHT + `gl_FragColor=vec4(pow(min(col,vec3(1.0)),vec3(0.95)),1.0);}`;
+  const FS_BAKE = `precision mediump float;varying vec3 vN;varying vec3 vC;varying float vE;varying vec3 vP;varying vec3 vPo;
+` + LIGHT_FN + `
+const vec3 uL=vec3(-0.7,0.38,0.45);const vec3 uL2=vec3(0.55,0.12,-0.35);const vec3 uRim=vec3(0.55,0.68,0.9);const vec3 uTint=vec3(0.96,0.98,1.05);
+void main(){` + LIGHT + `gl_FragColor=vec4(pow(min(col,vec3(1.0)),vec3(1.0)),1.0);}`;
+  const FS_LIVE = `precision mediump float;varying vec3 vN;varying vec3 vC;varying float vE;varying vec3 vP;varying vec3 vPo;
+` + LIGHT_FN + `
+uniform vec3 uKey;uniform vec3 uFill;uniform vec3 uRim;uniform vec3 uTint;uniform float uFog;
+void main(){vec3 uL=uKey;vec3 uL2=uFill;` + LIGHT + `float fog=1.0-exp(-length(vP)*uFog);col=mix(col,vec3(0.05,0.06,0.09),clamp(fog,0.0,0.5));gl_FragColor=vec4(min(col,vec3(1.0)),1.0);}`;
   const GVS = `attribute vec3 p;attribute float r;attribute float k;uniform mat4 M;uniform mat4 P;uniform float S;uniform float T;varying float vk;
 void main(){vec4 w=M*vec4(p,1.0);gl_Position=P*w;vk=k;float fl=k>0.5?(0.75+0.25*sin(T*3.0+p.x*9.0)):(0.9+0.1*sin(T*9.0+p.y*20.0));gl_PointSize=max(2.0,S*r*fl/(-w.z));}`;
-  const GFS = `precision mediump float;varying float vk;void main(){vec2 q=gl_PointCoord-0.5;float d=length(q)*2.0;float a=pow(max(0.0,1.0-d),2.2);
-vec3 c=vk>0.5?vec3(1.0,0.82,0.55):vec3(0.62,0.78,1.0);gl_FragColor=vec4(c*a,a);}`;
-  function prog(gl, vs, fs) { const sh = (t, s) => { const o = gl.createShader(t); gl.shaderSource(o, s); gl.compileShader(o); if (!gl.getShaderParameter(o, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(o)); return o; };
+  const GFS = `precision mediump float;varying float vk;void main(){vec2 q=gl_PointCoord-0.5;float d=length(q)*2.0;float a=pow(max(0.0,1.0-d),2.0);float core=pow(max(0.0,1.0-d*1.7),3.2);
+vec3 c=vk>0.5?vec3(1.0,0.84,0.55):vec3(0.55,0.82,1.0);gl_FragColor=vec4(c*a+vec3(0.95,0.97,1.0)*core,a+core);}`;
+
+    function prog(gl, vs, fs) { const sh = (t, s) => { const o = gl.createShader(t); gl.shaderSource(o, s); gl.compileShader(o); if (!gl.getShaderParameter(o, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(o)); return o; };
     const p = gl.createProgram(); gl.attachShader(p, sh(gl.VERTEX_SHADER, vs)); gl.attachShader(p, sh(gl.FRAGMENT_SHADER, fs)); gl.linkProgram(p); if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error('link'); return p; }
 
   const V = { cv: null, gl: null, ok: null, type: null, buf: null, yaw: 0.7, pitch: 0.32, vyaw: 0, vpitch: 0, zoom: 1, drag: null, idleAt: 0, raf: 0, t0: 0, frames: 0, last: 0 };
@@ -526,6 +631,24 @@ vec3 c=vk>0.5?vec3(1.0,0.82,0.55):vec3(0.62,0.78,1.0);gl_FragColor=vec4(c*a,a);}
   // 화면의 자리(host)에 3D 보기를 붙임 — 화면을 다시 그려도 같은 캔버스를 다시 붙여서 WebGL을 새로 만들지 않음
 
   // ---------- 도킹 연출: 격납고 안으로 들어오는 함선 (고정 카메라, 각도만 회전) ----------
+  const VS_SKY = `attribute vec2 a;varying vec2 vU;void main(){vU=a*0.5+0.5;gl_Position=vec4(a,0.999,1.0);}`;
+  const FS_SKY = `precision mediump float;varying vec2 vU;
+float h(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
+void main(){
+  vec2 uv=vU; vec3 col=vec3(0.01,0.014,0.035);
+  float n=0.5+0.5*sin(uv.x*3.8+0.4)*sin(uv.y*2.6);
+  n+=0.35*sin(uv.x*8.5-1.1)*sin(uv.y*5.5+0.6);
+  col+=vec3(0.14,0.05,0.2)*smoothstep(0.45,0.98,n)*0.55;
+  col+=vec3(0.03,0.08,0.18)*smoothstep(0.35,0.9,1.0-n)*0.4;
+  col+=vec3(0.1,0.05,0.03)*smoothstep(0.6,1.0,n*uv.y)*0.2;
+  vec2 pc=uv-vec2(0.80,0.60); float pr=length(pc);
+  col+=vec3(0.28,0.16,0.10)*smoothstep(0.13,0.08,pr)*0.85;
+  col+=vec3(0.12,0.06,0.04)*smoothstep(0.24,0.10,pr)*0.45;
+  vec2 g=floor(uv*230.0); float s=h(g);
+  if(s>0.984){ float d=length(fract(uv*230.0)-0.5); col+=vec3(0.95,0.97,1.0)*smoothstep(0.42,0.0,d)*((s-0.984)/0.016); }
+  gl_FragColor=vec4(col,1.0);
+}`;
+  const FS_SHAFT = `precision mediump float;varying vec3 vC;varying float vE;void main(){float a=vE*0.045;gl_FragColor=vec4(vC*a,a);}`;
   const C3 = { ok: null, cv: null, gl: null, bay: null, P1: null, P2: null, buf: {}, uM: new Float32Array(16), uP: new Float32Array(16), uKey: new Float32Array(3), uFill: new Float32Array(3), uRim: new Float32Array(3), uTint: new Float32Array([1, 1, 1]) };
   function cineInit() {
     if (C3.ok !== null) return C3.ok;
@@ -533,62 +656,80 @@ vec3 c=vk>0.5?vec3(1.0,0.82,0.55):vec3(0.62,0.78,1.0);gl_FragColor=vec4(c*a,a);}
     const cv = C3.cv = document.createElement('canvas'); cv.width = 960; cv.height = 400;
     let gl = null; try { gl = cv.getContext('webgl', { antialias: true, alpha: false, premultipliedAlpha: false, preserveDrawingBuffer: true }) || cv.getContext('experimental-webgl'); } catch (e) { gl = null; }
     if (!gl) { C3.ok = false; return false; }
-    try { C3.P1 = prog(gl, VS, FS_LIVE); C3.P2 = prog(gl, GVS, GFS); } catch (e) { C3.ok = false; return false; }
+    try {
+      C3.P1 = prog(gl, VS, FS_LIVE); C3.P2 = prog(gl, GVS, GFS);
+      C3.PSK = prog(gl, VS_SKY, FS_SKY); C3.PSH = prog(gl, VS, FS_SHAFT);
+      const qb = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, qb); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW); C3.skyQ = qb;
+    } catch (e) { C3.ok = false; return false; }
     C3.gl = gl; C3.ok = true; return true;
+  }
+  function bufOf(m) {
+    const gl = C3.gl;
+    const mk = (arr) => { const b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(arr), gl.STATIC_DRAW); return b; };
+    const gp = [], gr = [], gk = []; (m.glow || []).forEach(g => { gp.push(g[0], g[1], g[2]); gr.push(g[3]); gk.push(g[4] ? 1 : 0); });
+    return { p: mk(m.p), n: mk(m.n), c: mk(m.c), e: mk(m.e), gp: gp.length ? mk(gp) : null, gr: gr.length ? mk(gr) : null, gk: gk.length ? mk(gk) : null, count: m.p.length / 3, gcount: (m.glow || []).length };
   }
   function bayMesh() {
     if (C3.bay) return C3.bay;
     const m = new Mesh();
-    const wall = hex('#141820'), floor = hex('#15181f'), ceil = hex('#10131a'), stripe = hex('#b8944a'), trim = PAL.hull2, lit = hex('#e8d8a8');
-    // 바닥·천장·옆벽·뒷벽 (문이 있는 앞벽은 문틀만)
+    const wall = hex('#0b0d12'), floor = hex('#07080b'), ceil = hex('#090b10'), rib = hex('#161c24'), stripe = hex('#6a5228'), trim = hex('#222830'), lit = hex('#f0e0b0');
     const slab = (x, y, z, sx, sy, sz, col, em) => { m.emBox(x, y, z, sx, sy, sz, col, em || 0); };
-    slab(0, 0, 0, 11, 0.04, 5.2, floor, 0);           // floor
-    slab(0, 4.4, 0, 11, 0.04, 5.2, ceil, 0);           // ceiling
-    slab(0, 2.2, -5.15, 11, 2.2, 0.08, wall, 0);       // left wall
-    slab(0, 2.2, 5.15, 11, 2.2, 0.08, wall, 0);        // right wall
-    slab(9.2, 2.2, 0, 0.12, 2.2, 5.2, wall, 0);        // back wall
-    // 문틀 (앞, x=-9)
-    slab(-9.0, 2.2, -3.4, 0.16, 2.2, 1.7, trim, 0);
-    slab(-9.0, 2.2, 3.4, 0.16, 2.2, 1.7, trim, 0);
-    slab(-9.0, 3.85, 0, 0.16, 0.5, 5.2, trim, 0);
-    slab(-9.0, 0.2, 0, 0.16, 0.2, 5.2, trim, 0);
-    // 바닥 안내선
-    for (let i = -8; i < 8; i += 2) slab(i, 0.05, 0, 0.08, 0.01, 1.8, stripe, 0.15);
-    slab(0, 0.05, 1.85, 9, 0.01, 0.04, stripe, 0.2);
-    slab(0, 0.05, -1.85, 9, 0.01, 0.04, stripe, 0.2);
-    // 천장 베이 조명
-    for (let i = -7; i <= 6; i += 2.2) { slab(i, 4.25, 0, 0.8, 0.04, 0.12, lit, 0.95); m.light(i, 4.15, 0, 0.35); }
-    for (let i = -6; i <= 6; i += 3) { m.light(i, 3.6, -4.6, 0.22); m.light(i, 3.6, 4.6, 0.22); }
-    // 옆 구조·상자
-    for (let i = -5; i <= 5; i += 5) { slab(i, 1.1, -4.6, 0.3, 1.1, 0.35, PAL.hull2, 0); slab(i, 1.1, 4.6, 0.3, 1.1, 0.35, PAL.hull2, 0); }
-    slab(6.5, 0.45, -3.4, 0.7, 0.45, 0.5, PAL.accent, 0);
-    slab(7.0, 0.35, 3.6, 0.55, 0.35, 0.55, PAL.hull, 0);
-    // 문짝은 따로 움직임
-    const mk = (arr) => { const b = C3.gl.createBuffer(); C3.gl.bindBuffer(C3.gl.ARRAY_BUFFER, b); C3.gl.bufferData(C3.gl.ARRAY_BUFFER, new Float32Array(arr), C3.gl.STATIC_DRAW); return b; };
-    const gp = [], gr = [], gk = []; m.glow.forEach(g => { gp.push(g[0], g[1], g[2]); gr.push(g[3]); gk.push(g[4] ? 1 : 0); });
-    C3.bay = { p: mk(m.p), n: mk(m.n), c: mk(m.c), e: mk(m.e), gp: mk(gp), gr: mk(gr), gk: mk(gk), count: m.p.length / 3, gcount: m.glow.length };
-    // 문짝 두 개
+    slab(0, 0, 0, 11, 0.05, 5.2, floor, 0);
+    slab(0, 4.45, 0, 11, 0.06, 5.2, ceil, 0);
+    slab(0, 2.2, -5.2, 11, 2.25, 0.1, wall, 0);
+    slab(0, 2.2, 5.2, 11, 2.25, 0.1, wall, 0);
+    slab(9.25, 2.2, 0, 0.14, 2.25, 5.2, wall, 0);
+    for (let i = -8; i <= 8; i += 2) {
+      slab(i, 2.2, -5.05, 0.08, 2.2, 0.12, rib, 0);
+      slab(i, 2.2, 5.05, 0.08, 2.2, 0.12, rib, 0);
+      slab(i, 4.32, 0, 0.07, 0.1, 5.05, rib, 0);
+      slab(i, 0.12, 0, 0.06, 0.08, 5.0, rib, 0);
+    }
+    for (let z = -3.5; z <= 3.5; z += 3.5) slab(0, 4.32, z, 11, 0.08, 0.08, rib, 0);
+    slab(-9.0, 2.2, -3.45, 0.22, 2.25, 1.75, trim, 0);
+    slab(-9.0, 2.2, 3.45, 0.22, 2.25, 1.75, trim, 0);
+    slab(-9.0, 3.95, 0, 0.22, 0.5, 5.2, trim, 0);
+    slab(-9.0, 0.22, 0, 0.22, 0.22, 5.2, trim, 0);
+    slab(-8.85, 3.95, 0, 0.06, 0.06, 5.0, PAL.accent, 0.25);
+    for (let i = -6; i < 7; i += 4) slab(i, 0.055, 0, 0.02, 0.006, 1.15, stripe, 0.12);
+    slab(0, 0.055, 1.35, 7.5, 0.006, 0.012, stripe, 0.14);
+    slab(0, 0.055, -1.35, 7.5, 0.006, 0.012, stripe, 0.14);
+    const shaftLights = [];
+    for (let i = -7; i <= 6; i += 2.2) { slab(i, 4.28, 0, 0.7, 0.04, 0.1, lit, 1); m.light(i, 4.12, 0, 0.4); shaftLights.push(i); }
+    for (let i = -6; i <= 6; i += 3) { m.light(i, 3.5, -4.7, 0.2); m.light(i, 3.5, 4.7, 0.2); slab(i, 3.9, -5.0, 0.12, 0.35, 0.08, lit, 0.8); slab(i, 3.9, 5.0, 0.12, 0.35, 0.08, lit, 0.8); }
+    for (let i = -5; i <= 5; i += 5) { slab(i, 1.3, -4.7, 0.22, 1.3, 0.28, rib, 0); slab(i, 1.3, 4.7, 0.22, 1.3, 0.28, rib, 0); }
+    slab(7.2, 1.1, -4.5, 0.16, 0.9, 0.4, PAL.hull2, 0);
+    m.emBox(7.2, 1.5, -4.25, 0.12, 0.25, 0.3, hex('#6a8a88'), 0.55);
+    slab(7.4, 0.4, 3.6, 0.5, 0.4, 0.45, PAL.hull2, 0);
+    m.emBox(9.1, 2.4, 0, 0.04, 0.35, 1.6, hex('#7aa0b8'), 0.45);
+    C3.bay = bufOf(m);
     const door = (sign) => {
       const d = new Mesh();
-      d.emBox(0, 0, 0, 0.08, 1.5, 1.55, hex('#3d4450'), 0);
-      d.emBox(0.02, 0, 0, 0.03, 1.35, 1.4, hex('#252a32'), 0);
-      for (let k = -1; k <= 1; k++) d.emBox(0.04, k * 0.7, 0, 0.02, 0.08, 1.35, lit, 0.6);
-      return { p: mk(d.p), n: mk(d.n), c: mk(d.c), e: mk(d.e), count: d.p.length / 3, sign };
+      d.emBox(0, 0, 0, 0.09, 1.52, 1.58, hex('#2a3038'), 0);
+      for (let k = -1.2; k <= 1.2; k += 0.6) d.emBox(0.01, 0, k, 0.1, 1.48, 0.04, hex('#12161c'), 0);
+      for (let k = -1.05; k <= 1.05; k += 0.7) d.emBox(0.05, 0, k, 0.03, 1.2, 0.22, hex('#1c222a'), 0);
+      d.emBox(0.06, 0, 0, 0.02, 1.35, 0.03, PAL.accent, 0.35);
+      for (let k = -1; k <= 1; k++) d.emBox(0.07, k * 0.75, 0, 0.02, 0.06, 1.4, lit, 0.65);
+      const o = bufOf(d); o.sign = sign; return o;
     };
     C3.doors = [door(-1), door(1)];
+    const sh = new Mesh();
+    const sc = hex('#f2e4b8');
+    shaftLights.forEach((x) => {
+      sh.emBox(x, 2.15, 0, 0.035, 2.05, 0.16, sc, 0.55);
+      sh.emBox(x, 2.15, 0, 0.16, 2.05, 0.03, sc, 0.35);
+    });
+    C3.shafts = bufOf(sh);
     return C3.bay;
   }
   function cineUpload(type) {
     if (C3.buf[type]) return C3.buf[type];
-    const gl = C3.gl, md = model(type), m = md.m;
-    const mk = (arr) => { const b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(arr), gl.STATIC_DRAW); return b; };
-    const gp = [], gr = [], gk = []; m.glow.forEach(g => { gp.push(g[0], g[1], g[2]); gr.push(g[3]); gk.push(g[4] ? 1 : 0); });
-    return (C3.buf[type] = { p: mk(m.p), n: mk(m.n), c: mk(m.c), e: mk(m.e), gp: mk(gp), gr: mk(gr), gk: mk(gk), count: m.p.length / 3, gcount: m.glow.length, R: md.R });
+    const md = model(type); const o = bufOf(md.m); o.R = md.R; return (C3.buf[type] = o);
   }
-  function drawMesh(gl, buf, M, P, key, fill, rim, tint, t) {
+  function drawMesh(gl, buf, M, P, key, fill, rim, tint, t, fog) {
     const attrB = (p, name, bufb, sizeN) => { const l = gl.getAttribLocation(p, name); if (l < 0) return; gl.bindBuffer(gl.ARRAY_BUFFER, bufb); gl.enableVertexAttribArray(l); gl.vertexAttribPointer(l, sizeN, gl.FLOAT, false, 0, 0); };
     C3.uM.set(M); C3.uP.set(P); C3.uKey.set(key); C3.uFill.set(fill); C3.uRim.set(rim); C3.uTint.set(tint || [1, 1, 1]);
-    gl.enable(gl.DEPTH_TEST); gl.disable(gl.BLEND); gl.disable(gl.CULL_FACE);
+    gl.enable(gl.DEPTH_TEST); gl.disable(gl.BLEND); gl.disable(gl.CULL_FACE); gl.depthMask(true);
     gl.useProgram(C3.P1); attrB(C3.P1, 'p', buf.p, 3); attrB(C3.P1, 'n', buf.n, 3); attrB(C3.P1, 'c', buf.c, 3); attrB(C3.P1, 'e', buf.e, 1);
     gl.uniformMatrix4fv(gl.getUniformLocation(C3.P1, 'M'), false, C3.uM);
     gl.uniformMatrix4fv(gl.getUniformLocation(C3.P1, 'P'), false, C3.uP);
@@ -596,13 +737,14 @@ vec3 c=vk>0.5?vec3(1.0,0.82,0.55):vec3(0.62,0.78,1.0);gl_FragColor=vec4(c*a,a);}
     gl.uniform3fv(gl.getUniformLocation(C3.P1, 'uFill'), C3.uFill);
     gl.uniform3fv(gl.getUniformLocation(C3.P1, 'uRim'), C3.uRim);
     gl.uniform3fv(gl.getUniformLocation(C3.P1, 'uTint'), C3.uTint);
+    const uf = gl.getUniformLocation(C3.P1, 'uFog'); if (uf) gl.uniform1f(uf, fog == null ? 0.04 : fog);
     gl.drawArrays(gl.TRIANGLES, 0, buf.count);
     if (buf.gcount) {
       gl.useProgram(C3.P2); gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE); gl.depthMask(false);
       attrB(C3.P2, 'p', buf.gp, 3); attrB(C3.P2, 'r', buf.gr, 1); attrB(C3.P2, 'k', buf.gk, 1);
       gl.uniformMatrix4fv(gl.getUniformLocation(C3.P2, 'M'), false, C3.uM);
       gl.uniformMatrix4fv(gl.getUniformLocation(C3.P2, 'P'), false, C3.uP);
-      gl.uniform1f(gl.getUniformLocation(C3.P2, 'S'), C3.cv.height * 4.0); gl.uniform1f(gl.getUniformLocation(C3.P2, 'T'), t || 0);
+      gl.uniform1f(gl.getUniformLocation(C3.P2, 'S'), C3.cv.height * 5.0); gl.uniform1f(gl.getUniformLocation(C3.P2, 'T'), t || 0);
       gl.drawArrays(gl.POINTS, 0, buf.gcount); gl.depthMask(true); gl.disable(gl.BLEND);
     }
   }
@@ -614,28 +756,38 @@ vec3 c=vk>0.5?vec3(1.0,0.82,0.55):vec3(0.62,0.78,1.0);gl_FragColor=vec4(c*a,a);}
     const door = ease((t - 0.02) / 0.2);
     const enter = ease((t - 0.14) / 0.7);
     const sx = -8.6 + 11.2 * enter, sy = Math.max(0.45, ship.R * 0.28), sz = 0;
-    const scale = 1.2 / Math.max(1.15, ship.R);
-    // 고정 카메라: 입구 안쪽, 항로의 오른쪽 앞
+    const scale = 1.35 / Math.max(1.15, ship.R);
     const ey = 2.15, eY = 1.42, ez = 3.25;
     const noseX = sx + 1.15, noseY = sy + 0.1, noseZ = sz;
     const lookX = -8.2 * (1 - enter) + noseX * enter, lookY = 1.15 * (1 - enter) + noseY * enter, lookZ = 0 * (1 - enter) + noseZ * enter;
     const Wgl = C3.cv.width, Hgl = C3.cv.height;
-    gl.viewport(0, 0, Wgl, Hgl); gl.clearColor(0.02, 0.025, 0.04, 1); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    gl.viewport(0, 0, Wgl, Hgl); gl.clearColor(0.01, 0.012, 0.03, 1); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    gl.enable(gl.DEPTH_TEST); gl.depthFunc(gl.LEQUAL); gl.depthMask(true); gl.disable(gl.BLEND);
+    gl.useProgram(C3.PSK);
+    const la = gl.getAttribLocation(C3.PSK, 'a'); gl.bindBuffer(gl.ARRAY_BUFFER, C3.skyQ); gl.enableVertexAttribArray(la); gl.vertexAttribPointer(la, 2, gl.FLOAT, false, 0, 0);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4); gl.disableVertexAttribArray(la);
     const P = M4.persp(0.72, Wgl / Hgl, 0.15, 40);
-    const V = M4.lookAt(ey, eY, ez, lookX, lookY, lookZ, 0, 1, 0);
-    const key = [0.15, 0.85, 0.2], fill = [0.35, 0.15, -0.4], rimc = [0.35, 0.55, 0.85];
+    const Vw = M4.lookAt(ey, eY, ez, lookX, lookY, lookZ, 0, 1, 0);
+    const key = [-0.85, 0.32, 0.12], fill = [0.08, 0.55, 0.04], rimc = [0.25, 0.32, 0.42];
     const ident = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
-    const Mbay = M4.mul(V, ident);
-    drawMesh(gl, C3.bay, Mbay, P, key, fill, rimc, [1, 1, 1], t * 5);
-    // 문짝: 좌우로 열림
+    const Mbay = M4.mul(Vw, ident);
+    drawMesh(gl, C3.bay, Mbay, P, key, fill, rimc, [0.72, 0.7, 0.66], t * 5, 0.04);
     C3.doors.forEach(d => {
       const open = door * 2.6;
-      const Md = M4.mul(V, M4.tr(-9.0, 1.7, d.sign * (1.55 + open)));
-      drawMesh(gl, d, Md, P, key, fill, rimc, [1, 1, 1], t);
+      const Md = M4.mul(Vw, M4.tr(-9.0, 1.7, d.sign * (1.55 + open)));
+      drawMesh(gl, d, Md, P, key, fill, rimc, [1, 1, 1], t, 0.03);
     });
-    // 함선: 뱃머리(+Z)가 +X(진행 방향)
-    const Ms = M4.mul(V, M4.mul(M4.tr(sx, sy, sz), M4.mul(M4.sc(scale), M4.ry(-Math.PI / 2))));
-    drawMesh(gl, ship, Ms, P, [0.45, 0.55, 0.55], [-0.2, 0.25, -0.4], [0.4, 0.65, 0.95], [1, 1, 1], t * 8);
+    const Ms = M4.mul(Vw, M4.mul(M4.tr(sx, sy, sz), M4.mul(M4.sc(scale), M4.ry(-Math.PI / 2))));
+    drawMesh(gl, ship, Ms, P, [0.55, 0.45, 0.35], [-0.15, 0.55, -0.25], [0.45, 0.7, 1.0], [1, 1, 1], t * 8, 0.02);
+    if (C3.shafts) {
+      const attrB = (p, name, bufb, sizeN) => { const l = gl.getAttribLocation(p, name); if (l < 0) return; gl.bindBuffer(gl.ARRAY_BUFFER, bufb); gl.enableVertexAttribArray(l); gl.vertexAttribPointer(l, sizeN, gl.FLOAT, false, 0, 0); };
+      gl.useProgram(C3.PSH); gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE); gl.depthMask(false); gl.enable(gl.DEPTH_TEST);
+      attrB(C3.PSH, 'p', C3.shafts.p, 3); attrB(C3.PSH, 'n', C3.shafts.n, 3); attrB(C3.PSH, 'c', C3.shafts.c, 3); attrB(C3.PSH, 'e', C3.shafts.e, 1);
+      gl.uniformMatrix4fv(gl.getUniformLocation(C3.PSH, 'M'), false, new Float32Array(Mbay));
+      gl.uniformMatrix4fv(gl.getUniformLocation(C3.PSH, 'P'), false, new Float32Array(P));
+      gl.drawArrays(gl.TRIANGLES, 0, C3.shafts.count);
+      gl.depthMask(true); gl.disable(gl.BLEND);
+    }
     c.drawImage(C3.cv, 0, 0, W, H);
     return true;
   }
@@ -644,6 +796,7 @@ vec3 c=vk>0.5?vec3(1.0,0.82,0.55):vec3(0.62,0.78,1.0);gl_FragColor=vec4(c*a,a);}
     mount(host, type) { if (!host) return; initGL(); if (V.cv.parentNode !== host) host.appendChild(V.cv);
       if (type !== V.type) { V.type = type; if (V.ok) upload(type); V.zoom = 1; }
       host.classList.toggle('flat', !V.ok); if (!V.raf) { V.last = 0; V.raf = requestAnimationFrame(draw); } },
+    pose(yaw, pitch, zoom) { if (yaw != null) V.yaw = yaw; if (pitch != null) V.pitch = pitch; if (zoom != null) V.zoom = zoom; V.vyaw = V.vpitch = 0; V.idleAt = 1e15; },
     info: () => ({ ok: V.ok, type: V.type, frames: V.frames, yaw: V.yaw, pitch: V.pitch, zoom: V.zoom, tris: V.type ? model(V.type).tris : 0, mounted: !!(V.cv && V.cv.isConnected) }),
     model, KIND, drawSprite, spriteSheet, enhanceFrame, drawLive, liveOk: () => liveInit(), drawDockCine, cineOk: () => cineInit(), BAKE_N, LIVE_S,
   };
