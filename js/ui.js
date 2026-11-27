@@ -579,23 +579,33 @@
   const stars = Array.from({ length: 1150 }, (_, i) => { const r = G.srand(i * 7919 + 1); const b = r(); return { x: r(), y: r(), z: 0.2 + r() * 0.8, b, spike: b > 0.985, col: ['rgba(190,214,255,1)', 'rgba(255,214,170,1)', 'rgba(255,246,230,1)'][Math.floor(r() * 3)] }; });
   const FONT = getComputedStyle(document.body).fontFamily || 'sans-serif';
   // 워프 터널: 카메라 쪽으로 날아오는 별(3D)
-  const tunnel = Array.from({ length: 320 }, () => ({ x: Math.random() * 2 - 1, y: Math.random() * 2 - 1, z: Math.random() }));
-  let lastDraw = performance.now();
+  const TUN_N = 220;
+  const tunnel = Array.from({ length: TUN_N }, () => ({ x: Math.random() * 2 - 1, y: Math.random() * 2 - 1, z: Math.random() }));
+  let lastDraw = performance.now(), lastFlash = '', lastFade = '', lastSheetH = 0, lastSheetAt = 0;
   function drawTunnel(c, W, H, cx, cy, v, alpha, dt) {
+    const n = (W <= 500 ? 140 : TUN_N);
     const f = Math.max(W, H) * 0.35; const tail = 0.04 + v * 0.35;
     c.save(); c.globalAlpha = alpha;
     const g = c.createRadialGradient(cx, cy, 0, cx, cy, Math.max(W, H) * 0.6);
     g.addColorStop(0, `rgba(255,250,240,${0.45 * v})`); g.addColorStop(0.12, `rgba(180,200,255,${0.18 * v})`); g.addColorStop(1, 'rgba(0,0,0,0)');
     c.fillStyle = g; c.fillRect(0, 0, W, H);
-    tunnel.forEach(st => {
-      st.z -= (0.08 + v * 1.9) * dt;
-      if (st.z <= 0.02) { st.x = Math.random() * 2 - 1; st.y = Math.random() * 2 - 1; st.z = 1; }
-      const x1 = cx + st.x / st.z * f * 0.3, y1 = cy + st.y / st.z * f * 0.3;
-      const z2 = Math.min(1.2, st.z + tail), x2 = cx + st.x / z2 * f * 0.3, y2 = cy + st.y / z2 * f * 0.3;
-      const b = G.clamp(1.1 - st.z, 0.1, 1);
-      c.strokeStyle = `rgba(255,${235 + 20 * v | 0},${220 + 35 * v | 0},${b})`; c.lineWidth = 0.6 + b * 2.2;
-      c.beginPath(); c.moveTo(x2, y2); c.lineTo(x1, y1); c.stroke();
-    });
+    const cr = 255, cg = (235 + 20 * v) | 0, cb = (220 + 35 * v) | 0;
+    // 줄기를 굵기 두 묶음으로 한 번에 그림 (프레임마다 stroke 수백 번 하지 않음)
+    for (let pass = 0; pass < 2; pass++) {
+      c.beginPath(); c.strokeStyle = `rgba(${cr},${cg},${cb},${pass ? 0.85 : 0.35})`; c.lineWidth = pass ? 1.4 : 2.6;
+      for (let i = 0; i < n; i++) {
+        const st = tunnel[i];
+        if (pass === 0) {
+          st.z -= (0.08 + v * 1.9) * dt;
+          if (st.z <= 0.02) { st.x = Math.random() * 2 - 1; st.y = Math.random() * 2 - 1; st.z = 1; }
+        }
+        const far = st.z < 0.45; if ((pass === 1) !== far) continue;
+        const x1 = cx + st.x / st.z * f * 0.3, y1 = cy + st.y / st.z * f * 0.3;
+        const z2 = Math.min(1.2, st.z + tail), x2 = cx + st.x / z2 * f * 0.3, y2 = cy + st.y / z2 * f * 0.3;
+        c.moveTo(x2, y2); c.lineTo(x1, y1);
+      }
+      c.stroke();
+    }
     c.restore();
   }
   // ---- v10: 워프 카메라 ----
@@ -614,7 +624,9 @@
     if (SP.docking || SP.undocking) tgt = 0;
     C.k += (tgt - C.k) * Math.min(1, fdt * (tgt > C.k ? 6 : 1.3)); if (C.k < 0.002 && !tgt) C.k = 0;
     const k = ease(C.k); const rot = angN(-Math.PI / 2 - C.dir) * k;
-    const sheet = mob && innerHeight >= 500 ? ($('#overview').offsetHeight || 0) : 0;
+    const nowS = performance.now();
+    if (mob && innerHeight >= 500 && nowS - lastSheetAt > 200) { lastSheetH = ($('#overview').offsetHeight || 0); lastSheetAt = nowS; }
+    const sheet = mob && innerHeight >= 500 ? lastSheetH : 0;
     const bottom = mob ? (innerHeight < 500 ? H - 70 : H - sheet - 96) : H - 190;
     const tx = mob && innerHeight >= 500 ? W / 2 : cx, ty = cy + Math.max(0, bottom - cy) * 0.62;
     const thrust = w ? (w.phase === 'warp' ? 1 : G.clamp(w.t / Math.max(0.3, w.align), 0, 1)) : SP.arrFx || 0;
@@ -628,12 +640,13 @@
     c.save(); c.translate(x, y);
     const gl = 10 + 26 * thrust, gx = -Math.cos(a) * 20 * sc, gy = -Math.sin(a) * 20 * sc * (1 - 0.3 * k); const g = c.createRadialGradient(gx, gy, 0, gx, gy, gl * sc); g.addColorStop(0, `rgba(190,215,255,${(0.25 + 0.5 * thrust) * k})`); g.addColorStop(1, 'rgba(120,160,255,0)');
     c.fillStyle = g; c.beginPath(); c.arc(gx, gy, gl * sc, 0, 7); c.fill();
-    c.scale(1, 1 - 0.3 * k); G.Art.drawShip(c, 0, 0, a, sc, 'player', T); c.restore();
+    if (G.Art.drawMode !== 'chase') c.scale(1, 1 - 0.3 * k);
+    G.Art.drawShip(c, 0, 0, a, sc, 'player', T); c.restore();
   }
-  function drawSpace() { G.Art.hull = G.activeShip(S) ? G.activeShip(S).type : null;
-    const nowT = performance.now(); const fdt = Math.min(0.1, (nowT - lastDraw) / 1000); lastDraw = nowT; const T = nowT / 1000;
-    const cv = $('#cv'); const W = cv.clientWidth, H = cv.clientHeight; const dpr = window.devicePixelRatio || 1;
-    if (cv.width !== W * dpr || cv.height !== H * dpr) { cv.width = W * dpr; cv.height = H * dpr; }
+  function drawSpace(frameDt) { G.Art.hull = G.activeShip(S) ? G.activeShip(S).type : null;
+    const nowT = performance.now(); const fdt = Math.min(0.1, frameDt != null ? frameDt : (nowT - lastDraw) / 1000); lastDraw = nowT; const T = nowT / 1000;
+    const cv = $('#cv'); const W = cv.clientWidth, H = cv.clientHeight; const dpr = Math.min(2, window.devicePixelRatio || 1);
+    if (cv.width !== Math.round(W * dpr) || cv.height !== Math.round(H * dpr)) { cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); }
     const c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
     c.fillStyle = '#000'; c.fillRect(0, 0, W, H);
     const pl = SP.pl; const mob = MOB(); if (SP.warp) { UI.panX = 0; UI.panY = 0; } const cx = (mob ? (innerHeight < 500 ? (W - Math.min(330, W * 0.44)) / 2 : W / 2) : W / 2 - 160) + UI.panX, cy = (mob ? (innerHeight < 500 ? H / 2 : $('#space').classList.contains('ovmin') ? (H - 120) / 2 : H * 0.3) : H / 2 - 20) + UI.panY;
@@ -654,11 +667,13 @@
     c.save(); if (k > 0.001) { c.translate(W / 2, H / 2); c.rotate(rot); c.scale(CW.zoom, CW.zoom); c.translate(-W / 2, -H / 2); }
     G.Art.drawSpaceBg && G.Art.drawSpaceBg(c, W, H, SP.sys, -Math.tanh((pl.x - SP.bgX) / 120000) * 60 + UI.panX * 0.04, -Math.tanh((pl.y - SP.bgY) / 120000) * 60 + UI.panY * 0.04, warping ? 0.35 : 1);
     const SD = Math.hypot(W, H), ox0 = (W - SD) / 2, oy0 = (H - SD) / 2; // 회전해도 빈 모서리가 없도록 대각선 크기 정사각형에 별을 뿌림
-    stars.forEach(s => { const px = ox0 + ((s.x * SD - pl.x * z * 0.05 * s.z - CW.fx * s.z) % SD + SD) % SD, py = oy0 + ((s.y * SD - pl.y * z * 0.05 * s.z - CW.fy * s.z) % SD + SD) % SD;
-      if (px < -4 || py < -4 || px > W + 4 || py > H + 4) { if (k < 0.001) return; }
-      if (s.spike) { G.Art.drawSpikeStar ? G.Art.drawSpikeStar(c, px, py, 0.9 + s.z * 1.2, s.col, 0.55 + 0.2 * Math.sin(T * 0.7 + s.x * 40)) : null; return; }
-      const sl = CW.streak * s.z; if (sl > 1) { c.strokeStyle = `rgba(255,246,230,${0.12 + s.b * 0.5})`; c.lineWidth = s.z * 1.3; c.beginPath(); c.moveTo(px, py); c.lineTo(px + CW.dx * sl, py + CW.dy * sl); c.stroke(); return; }
-      c.fillStyle = `rgba(255,246,230,${0.12 + s.b * 0.5})`; c.fillRect(px, py, s.z * 1.3, s.z * 1.3); });
+    if (!warping) {
+      stars.forEach(s => { const px = ox0 + ((s.x * SD - pl.x * z * 0.05 * s.z - CW.fx * s.z) % SD + SD) % SD, py = oy0 + ((s.y * SD - pl.y * z * 0.05 * s.z - CW.fy * s.z) % SD + SD) % SD;
+        if (px < -4 || py < -4 || px > W + 4 || py > H + 4) { if (k < 0.001) return; }
+        if (s.spike) { G.Art.drawSpikeStar ? G.Art.drawSpikeStar(c, px, py, 0.9 + s.z * 1.2, s.col, 0.55 + 0.2 * Math.sin(T * 0.7 + s.x * 40)) : null; return; }
+        const sl = CW.streak * s.z; if (sl > 1) { c.strokeStyle = `rgba(255,246,230,${0.12 + s.b * 0.5})`; c.lineWidth = s.z * 1.3; c.beginPath(); c.moveTo(px, py); c.lineTo(px + CW.dx * sl, py + CW.dy * sl); c.stroke(); return; }
+        c.fillStyle = `rgba(255,246,230,${0.12 + s.b * 0.5})`; c.fillRect(px, py, s.z * 1.3, s.z * 1.3); });
+    }
     c.restore();
     // 세계(천체·물체)는 카메라 변환 안에서 그림: 배 위치(pcx,pcy)를 중심으로 회전 + 진행 방향으로 살짝 눌러 원근감
     c.save(); if (k > 0.001) { c.translate(pcx, pcy); c.scale(1, 1 - 0.3 * k); c.rotate(rot); c.translate(-cx, -cy); }
@@ -679,16 +694,20 @@
       : SP.warp ? (SP.warp.phase === 'align' ? `워프 준비 ${Math.max(0, SP.warp.align - SP.warp.t).toFixed(1)}<div>→ ${esc(SP.warp.name)}</div>` : `워프 항행<div>→ ${esc(SP.warp.name)}</div>`)
       : SP.arrFx > 0.4 ? `워프 해제` : '';
     wo.hidden = !wtxt; if (wtxt && wo.innerHTML !== wtxt) wo.innerHTML = wtxt;
-    $('#fade').style.opacity = SP.docking ? G.clamp((dk - 0.62) / 0.38, 0, 1) : SP.undocking ? G.clamp(1 - uk / 0.4, 0, 1) : 0;
+    const fadeV = SP.docking ? G.clamp((dk - 0.62) / 0.38, 0, 1) : SP.undocking ? G.clamp(1 - uk / 0.4, 0, 1) : 0;
+    if (fadeV !== lastFade) { lastFade = fadeV; $('#fade').style.opacity = fadeV; }
     // 워프 진입·해제 섬광
     const fl = warping ? Math.max(0, 1 - SP.warp.t / 0.35) : Math.max(0, (SP.arrFx - 0.75) / 0.25);
-    $('#flash').style.opacity = (fl * 0.85).toFixed(2);
+    const fls = (fl * 0.85).toFixed(2); if (fls !== lastFlash) { lastFlash = fls; $('#flash').style.opacity = fls; }
     if (warping && !SP.warp.beeped) { SP.warp.beeped = true; G.Art.beep('warp'); }
     if (SP.docking && !SP.docking.beeped) { SP.docking.beeped = true; G.Art.beep('dock'); }
+    G.Art.lightAng = sa; G.Art.spaceDt = fdt; G.Art.thrust = CW.thrust;
     if (warping) {
       c.restore(); const p = SP.warp.t / SP.warp.dur; const v = 0.15 + 0.85 * G.warpSpeed(p);
+      G.Art.drawMode = 'chase'; G.Art.thrust = v;
       drawTunnel(c, W, H, pcx, CW.vy, v, 1, fdt);
       chaseShip(c, shipX, shipY, 1, (1.45 + 0.08 * v) * (1 - 0.34 * pull), T, v);
+      G.Art.drawMode = 'top';
       cv._hit = () => null; cv._toWorld = null;
       return;
     }
@@ -709,7 +728,7 @@
       if (e.kind === 'station') { let door = 0; if (SP.docking) door = dk < 0.7 ? Math.min(1, dk / 0.35) : Math.max(0, 1 - (dk - 0.7) / 0.3); else if (SP.undocking) door = uk < 0.6 ? Math.min(1, uk / 0.2) : Math.max(0, 1 - (uk - 0.6) / 0.4); G.Art.drawStation(c, x, y, Math.max(22, r), door, T); }
       else if (e.kind === 'gate') G.Art.drawGate(c, x, y, Math.max(16, r), T);
       else if (e.kind === 'roid') { const k0 = G.hash(e.id); c.fillStyle = G.ores[e.ore].color; c.beginPath(); for (let i = 0; i < 9; i++) { const a = i / 9 * 6.283; const k = 0.72 + ((G.hash(e.id + i) % 100) / 100) * 0.4; c.lineTo(x + Math.cos(a) * rr * k, y + Math.sin(a) * rr * k); } c.closePath(); c.fill(); c.fillStyle = 'rgba(0,0,0,0.45)'; c.beginPath(); c.arc(x + rr * 0.25, y + rr * 0.2, rr * 0.55, 0, 7); c.fill(); if (k0 % 3 === 0) { c.fillStyle = 'rgba(255,255,255,0.25)'; c.fillRect(x - rr * 0.3, y - rr * 0.35, 2, 2); } }
-      else if (e.kind === 'npc') { const a = Math.hypot(e.vx, e.vy) > 3 ? Math.atan2(e.vy, e.vx) : 0; const sc = { f: 0.9, d: 1.1, c: 1.4, bc: 1.7, bs: 2.1 }[e.tier] || 1; G.Art.drawShip(c, x, y, a, sc, e.navy ? 'navy' : e.faction === 'void' ? 'void' : 'raven', T); if (e.flee != null) { c.strokeStyle = '#ffb000'; c.setLineDash([3, 3]); c.beginPath(); c.arc(x, y, rr + 10, 0, 7); c.stroke(); c.setLineDash([]); } }
+      else if (e.kind === 'npc') { const a = Math.hypot(e.vx, e.vy) > 3 ? Math.atan2(e.vy, e.vx) : 0; const sc = { f: 0.9, d: 1.1, c: 1.4, bc: 1.7, bs: 2.1 }[e.tier] || 1; G.Art._nid = e.id; G.Art.drawShip(c, x, y, a, sc, e.navy ? 'navy' : e.faction === 'void' ? 'void' : 'raven', T); G.Art._nid = null; if (e.flee != null) { c.strokeStyle = '#ffb000'; c.setLineDash([3, 3]); c.beginPath(); c.arc(x, y, rr + 10, 0, 7); c.stroke(); c.setLineDash([]); } }
       else if (e.kind === 'wreck') { c.fillStyle = '#6a6e78'; c.save(); c.translate(x, y); c.rotate(G.hash(e.id) % 6); c.fillRect(-6, -2, 12, 4); c.fillRect(-2, -5, 3, 10); c.restore(); }
       else if (e.kind === 'can') { c.fillStyle = e.hacked || e.site === 'loot' ? '#9fd88a' : e.site === 'data' ? '#9cc4ff' : '#ffb000'; c.fillRect(x - 6, y - 4, 12, 8); c.fillStyle = '#000'; c.fillRect(x - 4, y - 1, 8, 2); }
       else if (e.kind === 'beacon') { c.fillStyle = (T * 2 % 1) < 0.5 ? '#c99ad6' : '#5a3a6a'; c.beginPath(); c.arc(x, y, 4, 0, 7); c.fill(); c.strokeStyle = '#c99ad6'; c.beginPath(); c.arc(x, y, 9, 0, 7); c.stroke(); }
@@ -743,7 +762,7 @@
     const a = CW.head;
     const sc = (G.activeShip(S) ? 1.15 : 0.5) * (1 - dk * 0.8) * (0.25 + 0.75 * uk);
     if (SP.arrFx > 0) drawTunnel(c, W, H, pcx, CW.vy + (pcy - CW.vy) * (1 - k), 0.15 * SP.arrFx, SP.arrFx, fdt);
-    if (G.activeShip(S) && k > 0.001) chaseShip(c, shipX, shipY, k, sc * (1 + 0.26 * k) * (1 - 0.34 * pull), T, CW.thrust, a + rot);
+    if (G.activeShip(S) && k > 0.001) { G.Art.drawMode = k > 0.45 ? 'chase' : 'top'; chaseShip(c, shipX, shipY, k, sc * (1 + 0.26 * k) * (1 - 0.34 * pull), T, CW.thrust, a + rot); G.Art.drawMode = 'top'; }
     else if (G.activeShip(S)) G.Art.drawShip(c, cx, cy, a, sc, 'player', T, 1 - Math.max(0, dk - 0.75) * 3);
     else { c.fillStyle = '#e8c9a0'; c.beginPath(); c.ellipse(cx, cy, 5, 3, a, 0, 7); c.fill(); }
     if (Math.hypot(pl.vx, pl.vy) > 40 && !SP.docking && k < 0.05) { c.strokeStyle = 'rgba(127,184,255,0.35)'; c.lineWidth = 2; c.beginPath(); c.moveTo(cx - Math.cos(a) * 24 * sc, cy - Math.sin(a) * 24 * sc); c.lineTo(cx - Math.cos(a) * 44 * sc, cy - Math.sin(a) * 44 * sc); c.stroke(); }
@@ -1238,8 +1257,10 @@
     const dt = Math.min(0.5, (now - last) / 1000); last = now;
     try {
       if (S && SP) {
-        acc += dt; while (acc >= 0.1) { G.step(SP, 0.1); acc -= 0.1; handleEvents(); if (!SP) break; }
-        if (SP) { drawSpace(); t2 += dt; if (t2 > 0.12) { t2 = 0; renderHud(); renderTargets(); } }
+        const warpish = !!(SP.warp || SP.arrFx > 0 || SP.docking || SP.undocking);
+        if (warpish) { G.step(SP, Math.min(dt, 0.05)); acc = 0; handleEvents(); }
+        else { acc += dt; while (acc >= 0.1) { G.step(SP, 0.1); acc -= 0.1; handleEvents(); if (!SP) break; } }
+        if (SP) { drawSpace(dt); t2 += dt; if (t2 > (warpish ? 0.25 : 0.12)) { t2 = 0; renderHud(); renderTargets(); } }
       }
       if (S) {
         tT += dt; if (tT > 0.12) { tT = 0; tutTick(); }

@@ -72,14 +72,51 @@
     }
     x.putImageData(img, 0, 0); return (litCache[key] = cv);
   }
+  const NPC_HULL = { navy: 'mae', raven: 'geobuk', void: 'jebi' };
+  const NPC_TINT = { navy: [0.82, 0.9, 1.08], raven: [1.15, 0.92, 0.7], void: [0.62, 0.78, 0.7], player: [1, 1, 1] };
+  const banks = {};
+  function shipBank(id, heading, dt) {
+    const p = banks[id] || { h: heading, b: 0 };
+    let dh = heading - p.h; while (dh > Math.PI) dh -= Math.PI * 2; while (dh < -Math.PI) dh += Math.PI * 2;
+    const want = Math.max(-0.5, Math.min(0.5, dh / Math.max(0.008, dt || 0.016) * 0.16));
+    p.b += (want - p.b) * Math.min(1, (dt || 0.016) * 7);
+    p.h = heading; banks[id] = p; return p.b;
+  }
+  function drawTrail(c, L, kind, t, thrust) {
+    const col = AURA[kind] || AURA.player;
+    const th = thrust == null ? 0.35 : thrust;
+    const flick = 0.8 + 0.2 * Math.sin((t || 0) * 8);
+    const ex = -L * 0.28, len = L * (0.18 + 0.55 * th);
+    c.save(); c.globalCompositeOperation = 'lighter';
+    const g = c.createLinearGradient(ex, 0, ex - len, 0);
+    g.addColorStop(0, `rgba(230,238,255,${0.55 * flick})`);
+    g.addColorStop(0.25, `rgba(${col.eng},${0.4 * flick})`);
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    c.fillStyle = g; c.beginPath(); c.moveTo(ex, -L * 0.04); c.lineTo(ex - len, -L * 0.015 * (1 + th)); c.lineTo(ex - len, L * 0.015 * (1 + th)); c.lineTo(ex, L * 0.04); c.closePath(); c.fill();
+    const g2 = c.createRadialGradient(ex, 0, 0, ex, 0, L * (0.08 + 0.06 * th));
+    g2.addColorStop(0, `rgba(240,248,255,${0.6 * flick})`); g2.addColorStop(0.4, `rgba(${col.eng},${0.35 * flick})`); g2.addColorStop(1, 'rgba(0,0,0,0)');
+    c.fillStyle = g2; c.beginPath(); c.arc(ex, 0, L * (0.08 + 0.06 * th), 0, 7); c.fill();
+    c.restore();
+  }
   Art.drawShip = (c, x, y, a, s, kind, t, alpha, hull) => {
     hull = hull || (kind === 'player' ? Art.hull : null);
+    if (!hull && kind && kind !== 'player') hull = NPC_HULL[kind] || null;
     const L = shipL(s, kind, hull);
+    const mode = Art.drawMode || 'top';
+    const dt = Art.spaceDt || 0.016;
+    const bid = kind === 'player' ? 'pl' : (Art._nid || kind);
+    const bank = shipBank(bid, a, dt);
+    const lang = Art.lightAng || 0;
+    const tint = NPC_TINT[kind] || NPC_TINT.player;
+    const thrust = Art.thrust == null ? 0.3 : Art.thrust;
     c.save(); c.translate(x, y); c.globalAlpha = alpha == null ? 1 : alpha;
+    c.rotate(a); drawTrail(c, L, kind, t, thrust); c.rotate(-a);
+    if (hull && G.Ship3D && G.Ship3D.KIND[hull] && G.Ship3D.drawLive
+      && G.Ship3D.drawLive(c, 0, 0, hull, { yaw: a, bank, mode, size: L, alpha: 1, lightAng: lang, tint, t })) { c.restore(); return; }
+    // WebGL이 없을 때만 예전 스프라이트
     c.rotate(a); drawEngine(c, L, kind, t); c.rotate(-a);
-    // 내 함선·같은 함급은 정비고 3D 모델을 위에서 본 스프라이트로. L은 이미 함급 길이를 반영.
     if (hull && G.Ship3D && G.Ship3D.KIND[hull] && G.Ship3D.drawSprite && G.Ship3D.drawSprite(c, 0, 0, a, L / 52, hull, 1)) { c.restore(); return; }
-    const im0 = IMG[Art.spriteFor(kind, s, hull)];
+    const im0 = IMG[Art.spriteFor(kind, s, kind === 'player' ? hull : kind)];
     if (!im0) { old.ship(c, 0, 0, a, s, kind, t, 1); c.restore(); return; }
     const im = litSprite(im0, kind);
     const H = L * im.height / im.width;

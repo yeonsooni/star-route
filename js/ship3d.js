@@ -9,6 +9,7 @@
     mul(a, b) { const o = new Array(16); for (let i = 0; i < 4; i++) for (let j = 0; j < 4; j++) { let s = 0; for (let k = 0; k < 4; k++) s += a[k * 4 + j] * b[i * 4 + k]; o[i * 4 + j] = s; } return o; },
     rx(t) { const c = Math.cos(t), s = Math.sin(t); return [1, 0, 0, 0, 0, c, s, 0, 0, -s, c, 0, 0, 0, 0, 1]; },
     ry(t) { const c = Math.cos(t), s = Math.sin(t); return [c, 0, -s, 0, 0, 1, 0, 0, s, 0, c, 0, 0, 0, 0, 1]; },
+    rz(t) { const c = Math.cos(t), s = Math.sin(t); return [c, s, 0, 0, -s, c, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]; },
     tr(x, y, z) { return [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, x, y, z, 1]; },
     sc(s) { return [s, 0, 0, 0, 0, s, 0, 0, 0, 0, s, 0, 0, 0, 0, 1]; },
   };
@@ -143,6 +144,16 @@ float sp=pow(max(dot(N,H),0.0),48.0);float rim=pow(1.0-max(dot(N,V),0.0),4.0);
 vec3 alb=vC*vec3(0.95,0.97,1.06);
 vec3 col=alb*(0.28+0.86*d)+alb*vec3(0.25,0.35,0.55)*d2*0.32+vec3(0.75,0.82,0.95)*sp*0.28+vec3(0.55,0.68,0.90)*rim*0.32;
 col=mix(col,vC*1.05+vec3(0.02,0.04,0.10),vE);gl_FragColor=vec4(pow(min(col,vec3(1.0)),vec3(1.02)),1.0);}`;
+  // 우주 화면 실시간 3D: 항성 방향의 키 라이트·스펙큘러, 차가운 림/필, 발광부(창문·항해등)
+  const FS_LIVE = `precision mediump float;varying vec3 vN;varying vec3 vC;varying float vE;varying vec3 vP;
+uniform vec3 uKey;uniform vec3 uFill;uniform vec3 uRim;uniform vec3 uTint;
+void main(){vec3 N=normalize(vN);vec3 V=normalize(-vP);if(dot(N,V)<0.0)N=-N;
+vec3 L=normalize(uKey);vec3 L2=normalize(uFill);
+float d=max(dot(N,L),0.0);float d2=max(dot(N,L2),0.0);vec3 H=normalize(L+V);
+float sp=pow(max(dot(N,H),0.0),40.0);float rim=pow(1.0-max(dot(N,V),0.0),2.6);
+vec3 alb=vC*uTint;
+vec3 col=alb*(0.20+1.40*d)+alb*vec3(0.30,0.44,0.66)*d2*0.62+vec3(1.0,0.97,0.90)*sp*1.05+uRim*rim*0.85;
+col=mix(col,max(alb*1.2,vec3(0.45,0.62,0.95)),vE);gl_FragColor=vec4(min(col,vec3(1.0)),1.0);}`;
   const GVS = `attribute vec3 p;attribute float r;attribute float k;uniform mat4 M;uniform mat4 P;uniform float S;uniform float T;varying float vk;
 void main(){vec4 w=M*vec4(p,1.0);gl_Position=P*w;vk=k;float fl=k>0.5?(0.75+0.25*sin(T*3.0+p.x*9.0)):(0.9+0.1*sin(T*9.0+p.y*20.0));gl_PointSize=max(2.0,S*r*fl/(-w.z));}`;
   const GFS = `precision mediump float;varying float vk;void main(){vec2 q=gl_PointCoord-0.5;float d=length(q)*2.0;float a=pow(max(0.0,1.0-d),2.2);
@@ -318,12 +329,87 @@ vec3 c=vk>0.5?vec3(1.0,0.82,0.55):vec3(0.62,0.78,1.0);gl_FragColor=vec4(c*a,a);}
     c.drawImage(frames[i], -L / 2, -L / 2, L, L);
     c.restore(); return true;
   }
+
+  // ---------- 우주 화면 실시간 3D (공유 오프스크린 WebGL, 파일로 열어도 됨) ----------
+  const LIVE_S = 160;
+  const L3 = { ok: null, cv: null, gl: null, buf: {}, P1: null, P2: null, uM: new Float32Array(16), uP: new Float32Array(16), uKey: new Float32Array(3), uFill: new Float32Array(3), uRim: new Float32Array(3), uTint: new Float32Array(3) };
+  function liveInit() {
+    if (L3.ok !== null) return L3.ok;
+    if (typeof document === 'undefined' || (typeof window !== 'undefined' && window.__no3d)) { L3.ok = false; return false; }
+    const cv = L3.cv = document.createElement('canvas'); cv.width = cv.height = LIVE_S;
+    let gl = null; try { gl = cv.getContext('webgl', { antialias: true, alpha: true, premultipliedAlpha: false, preserveDrawingBuffer: true }) || cv.getContext('experimental-webgl'); } catch (e) { gl = null; }
+    if (!gl) { L3.ok = false; return false; }
+    try { L3.P1 = prog(gl, VS, FS_LIVE); L3.P2 = prog(gl, GVS, GFS); } catch (e) { L3.ok = false; return false; }
+    L3.gl = gl; L3.ok = true; return true;
+  }
+  function liveUpload(type) {
+    if (L3.buf[type]) return L3.buf[type];
+    const gl = L3.gl, md = model(type), m = md.m;
+    const mk = (arr) => { const b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(arr), gl.STATIC_DRAW); return b; };
+    const gp = [], gr = [], gk = []; m.glow.forEach(g => { gp.push(g[0], g[1], g[2]); gr.push(g[3]); gk.push(g[4] ? 1 : 0); });
+    return (L3.buf[type] = { p: mk(m.p), n: mk(m.n), c: mk(m.c), e: mk(m.e), gp: mk(gp), gr: mk(gr), gk: mk(gk), count: m.p.length / 3, gcount: m.glow.length, R: md.R });
+  }
+  // c 위에 (x,y) 크기는 opts.size(px). yaw=0 이면 뱃머리가 +X(오른쪽). mode 'top'|'chase'.
+  function drawLive(c, x, y, type, opts) {
+    opts = opts || {};
+    if (!liveInit()) return false;
+    const gl = L3.gl, u = liveUpload(type); if (!u) return false;
+    const yaw = opts.yaw || 0, bank = opts.bank || 0, mode = opts.mode || 'top';
+    const size = opts.size || 52, alpha = opts.alpha == null ? 1 : opts.alpha;
+    const lang = opts.lightAng == null ? -0.7 : opts.lightAng;
+    const tint = opts.tint || [1, 1, 1];
+    gl.viewport(0, 0, LIVE_S, LIVE_S); gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    const fov = mode === 'chase' ? 0.62 : 0.52;
+    const dist = (u.R / Math.sin(fov / 2)) * (mode === 'chase' ? 1.12 : 1.22);
+    const P = M4.persp(fov, 1, 0.05, 50);
+    let Mx;
+    if (mode === 'chase') {
+      // 뒤·약간 위에서 봄. 뱃머리가 화면 위(+Y)를 향하도록 맞춤.
+      Mx = M4.mul(M4.tr(0, -u.R * 0.08, -dist), M4.mul(M4.rx(0.42), M4.mul(M4.rz(-bank), M4.ry(Math.PI))));
+    } else {
+      const tilt = 0.36;
+      Mx = M4.mul(M4.tr(0, 0, -dist), M4.mul(M4.rx(-Math.PI / 2 + tilt), M4.mul(M4.ry(Math.PI / 2 + yaw), M4.rz(-bank))));
+    }
+    const attrB = (p, name, buf, sizeN) => { const l = gl.getAttribLocation(p, name); if (l < 0) return; gl.bindBuffer(gl.ARRAY_BUFFER, buf); gl.enableVertexAttribArray(l); gl.vertexAttribPointer(l, sizeN, gl.FLOAT, false, 0, 0); };
+    gl.enable(gl.DEPTH_TEST); gl.disable(gl.BLEND); gl.disable(gl.CULL_FACE);
+    gl.useProgram(L3.P1); attrB(L3.P1, 'p', u.p, 3); attrB(L3.P1, 'n', u.n, 3); attrB(L3.P1, 'c', u.c, 3); attrB(L3.P1, 'e', u.e, 1);
+    L3.uM.set(Mx); L3.uP.set(P);
+    gl.uniformMatrix4fv(gl.getUniformLocation(L3.P1, 'M'), false, L3.uM);
+    gl.uniformMatrix4fv(gl.getUniformLocation(L3.P1, 'P'), false, L3.uP);
+    // 키 라이트는 항성 방향(뷰 공간, 배는 회전하고 빛은 고정)
+    const el = 0.55;
+    let key, fill, rimc;
+    if (mode === 'chase') {
+      key = [0.25, 0.55, 0.75]; fill = [-0.4, 0.2, 0.4]; rimc = [0.45, 0.62, 0.9];
+    } else {
+      key = [Math.cos(lang) * 0.9, -Math.sin(lang) * 0.9, el];
+      fill = [-Math.cos(lang) * 0.35, Math.sin(lang) * 0.2, 0.4];
+      rimc = [0.42, 0.6, 0.88];
+    }
+    L3.uKey.set(key); L3.uFill.set(fill); L3.uRim.set(rimc); L3.uTint.set(tint);
+    gl.uniform3fv(gl.getUniformLocation(L3.P1, 'uKey'), L3.uKey);
+    gl.uniform3fv(gl.getUniformLocation(L3.P1, 'uFill'), L3.uFill);
+    gl.uniform3fv(gl.getUniformLocation(L3.P1, 'uRim'), L3.uRim);
+    gl.uniform3fv(gl.getUniformLocation(L3.P1, 'uTint'), L3.uTint);
+    gl.drawArrays(gl.TRIANGLES, 0, u.count);
+    gl.useProgram(L3.P2); gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE); gl.depthMask(false);
+    attrB(L3.P2, 'p', u.gp, 3); attrB(L3.P2, 'r', u.gr, 1); attrB(L3.P2, 'k', u.gk, 1);
+    gl.uniformMatrix4fv(gl.getUniformLocation(L3.P2, 'M'), false, L3.uM);
+    gl.uniformMatrix4fv(gl.getUniformLocation(L3.P2, 'P'), false, L3.uP);
+    gl.uniform1f(gl.getUniformLocation(L3.P2, 'S'), LIVE_S * 7.5); gl.uniform1f(gl.getUniformLocation(L3.P2, 'T'), opts.t || 0);
+    gl.drawArrays(gl.POINTS, 0, u.gcount); gl.depthMask(true);
+    c.save(); c.translate(x, y); c.globalAlpha = alpha;
+    if (mode === 'chase') { /* 이미 뒤시점으로 그림 */ }
+    c.drawImage(L3.cv, -size / 2, -size / 2, size, size);
+    c.restore();
+    return true;
+  }
   // 화면의 자리(host)에 3D 보기를 붙임 — 화면을 다시 그려도 같은 캔버스를 다시 붙여서 WebGL을 새로 만들지 않음
   G.Ship3D = {
     mount(host, type) { if (!host) return; initGL(); if (V.cv.parentNode !== host) host.appendChild(V.cv);
       if (type !== V.type) { V.type = type; if (V.ok) upload(type); V.zoom = 1; }
       host.classList.toggle('flat', !V.ok); if (!V.raf) { V.last = 0; V.raf = requestAnimationFrame(draw); } },
     info: () => ({ ok: V.ok, type: V.type, frames: V.frames, yaw: V.yaw, pitch: V.pitch, zoom: V.zoom, tris: V.type ? model(V.type).tris : 0, mounted: !!(V.cv && V.cv.isConnected) }),
-    model, KIND, drawSprite, spriteSheet, enhanceFrame, BAKE_N,
+    model, KIND, drawSprite, spriteSheet, enhanceFrame, drawLive, liveOk: () => liveInit(), BAKE_N, LIVE_S,
   };
 })(typeof window !== 'undefined' ? window.G : globalThis.G);
