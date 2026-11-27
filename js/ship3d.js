@@ -133,6 +133,13 @@ void main(){vec3 N=normalize(vN);vec3 V=normalize(-vP);if(dot(N,V)<0.0)N=-N;vec3
 float d=max(dot(N,L),0.0);float d2=max(dot(N,L2),0.0);vec3 H=normalize(L+V);float sp=pow(max(dot(N,H),0.0),36.0);float rim=pow(1.0-max(dot(N,V),0.0),3.0);
 vec3 col=vC*(0.16+0.9*d)+vC*vec3(0.30,0.40,0.62)*d2*0.55+vec3(1.0,0.88,0.74)*sp*0.38+vec3(0.55,0.70,1.0)*rim*0.32;
 col=mix(col,vC*1.15+vec3(0.02,0.05,0.12),vE);gl_FragColor=vec4(pow(col,vec3(0.95)),1.0);}`;
+  // 우주 화면용: 어두운 성운 배경에서 선체가 드러나도록 환경광·림라이트를 밝게 (정비고 셰이더는 그대로)
+  const FS_BAKE = `precision mediump float;varying vec3 vN;varying vec3 vC;varying float vE;varying vec3 vP;
+void main(){vec3 N=normalize(vN);vec3 V=normalize(-vP);if(dot(N,V)<0.0)N=-N;vec3 L=normalize(vec3(-0.2,0.9,0.5));vec3 L2=normalize(vec3(0.7,-0.1,-0.3));
+float d=max(dot(N,L),0.0);float d2=max(dot(N,L2),0.0);vec3 H=normalize(L+V);float sp=pow(max(dot(N,H),0.0),26.0);float rim=pow(1.0-max(dot(N,V),0.0),2.1);
+vec3 alb=vC*1.3+vec3(0.07,0.07,0.09);
+vec3 col=alb*(0.46+0.82*d)+alb*vec3(0.36,0.46,0.66)*d2*0.42+vec3(1.0,0.93,0.84)*sp*0.55+vec3(0.8,0.88,1.0)*rim*0.7;
+col=mix(col,vC*1.28+vec3(0.1,0.14,0.24),vE);gl_FragColor=vec4(min(col,vec3(1.0)),1.0);}`;
   const GVS = `attribute vec3 p;attribute float r;attribute float k;uniform mat4 M;uniform mat4 P;uniform float S;uniform float T;varying float vk;
 void main(){vec4 w=M*vec4(p,1.0);gl_Position=P*w;vk=k;float fl=k>0.5?(0.75+0.25*sin(T*3.0+p.x*9.0)):(0.9+0.1*sin(T*9.0+p.y*20.0));gl_PointSize=max(2.0,S*r*fl/(-w.z));}`;
   const GFS = `precision mediump float;varying float vk;void main(){vec2 q=gl_PointCoord-0.5;float d=length(q)*2.0;float a=pow(max(0.0,1.0-d),2.2);
@@ -220,7 +227,7 @@ vec3 c=vk>0.5?vec3(1.0,0.82,0.55):vec3(0.62,0.78,1.0);gl_FragColor=vec4(c*a,a);}
     const cv = B.cv = document.createElement('canvas'); cv.width = cv.height = BAKE_S;
     let gl = null; try { gl = cv.getContext('webgl', { antialias: true, alpha: true, premultipliedAlpha: false, preserveDrawingBuffer: true }) || cv.getContext('experimental-webgl'); } catch (e) { gl = null; }
     if (!gl) { B.ok = false; return false; }
-    try { B.P1 = prog(gl, VS, FS); B.P2 = prog(gl, GVS, GFS); } catch (e) { B.ok = false; return false; }
+    try { B.P1 = prog(gl, VS, FS_BAKE); B.P2 = prog(gl, GVS, GFS); } catch (e) { B.ok = false; return false; }
     B.gl = gl; B.ok = true; return true;
   }
   function bakeUpload(type) {
@@ -233,7 +240,7 @@ vec3 c=vk>0.5?vec3(1.0,0.82,0.55):vec3(0.62,0.78,1.0);gl_FragColor=vec4(c*a,a);}
   function bakeFrame(type, yaw) {
     const gl = B.gl, cv = B.cv, u = bakeUpload(type);
     gl.viewport(0, 0, BAKE_S, BAKE_S); gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-    const fov = 0.52, dist = (u.R / Math.sin(fov / 2)) * 1.22;
+    const fov = 0.5, dist = (u.R / Math.sin(fov / 2)) * 1.05;
     const P = M4.persp(fov, 1, 0.05, 50);
     // 위에서 살짝 기울여 봄. yaw=π/2 일 때 뱃머리가 화면 오른쪽(+X) — 기존 2D 스프라이트와 같음.
     const tilt = 0.36, Mx = M4.mul(M4.tr(0, 0, -dist), M4.mul(M4.rx(-Math.PI / 2 + tilt), M4.ry(Math.PI / 2 + yaw)));
@@ -245,11 +252,47 @@ vec3 c=vk>0.5?vec3(1.0,0.82,0.55):vec3(0.62,0.78,1.0);gl_FragColor=vec4(c*a,a);}
     gl.useProgram(B.P2); gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE); gl.depthMask(false);
     attrB(B.P2, 'p', u.gp, 3); attrB(B.P2, 'r', u.gr, 1); attrB(B.P2, 'k', u.gk, 1);
     gl.uniformMatrix4fv(gl.getUniformLocation(B.P2, 'M'), false, new Float32Array(Mx)); gl.uniformMatrix4fv(gl.getUniformLocation(B.P2, 'P'), false, new Float32Array(P));
-    gl.uniform1f(gl.getUniformLocation(B.P2, 'S'), BAKE_S * 4.2); gl.uniform1f(gl.getUniformLocation(B.P2, 'T'), 0.4);
+    gl.uniform1f(gl.getUniformLocation(B.P2, 'S'), BAKE_S * 5.8); gl.uniform1f(gl.getUniformLocation(B.P2, 'T'), 0.4);
     gl.drawArrays(gl.POINTS, 0, u.gcount); gl.depthMask(true);
     const out = document.createElement('canvas'); out.width = out.height = BAKE_S;
     out.getContext('2d').drawImage(cv, 0, 0);
-    return out;
+    return enhanceFrame(out);
+  }
+  // 우주 스프라이트: 선체를 밝은 뮤트 회색으로 올리고, 가장자리에 은은한 림을 넣음 (한 번만, 캐시)
+  function enhanceFrame(src) {
+    const w = src.width, h = src.height, ctx = src.getContext('2d');
+    const img = ctx.getImageData(0, 0, w, h), d = img.data, N = w * h;
+    const A = new Uint8ClampedArray(N);
+    for (let i = 0, p = 0; i < d.length; i += 4, p++) {
+      A[p] = d[i + 3];
+      if (d[i + 3] < 8) continue;
+      const mx = Math.max(d[i], d[i + 1], d[i + 2]), mn = Math.min(d[i], d[i + 1], d[i + 2]);
+      const sat = mx ? (mx - mn) / mx : 0;
+      const lift = sat < 0.2 ? 0.46 : 0.2; // 무채색 선체는 많이, 금색·캐노피는 색을 남김
+      d[i] = d[i] + (232 - d[i]) * lift;
+      d[i + 1] = d[i + 1] + (228 - d[i + 1]) * lift;
+      d[i + 2] = d[i + 2] + (238 - d[i + 2]) * lift;
+    }
+    const rad = 2, rR = 214, rG = 224, rB = 238;
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const p = y * w + x;
+      if (A[p] > 80) {
+        let edge = false;
+        for (let dy = -1; dy <= 1 && !edge; dy++) for (let dx = -1; dx <= 1; dx++) {
+          const xx = x + dx, yy = y + dy; if (xx < 0 || yy < 0 || xx >= w || yy >= h) continue;
+          if (A[yy * w + xx] < 40) edge = true;
+        }
+        if (edge) { const o = p * 4; d[o] = Math.min(255, d[o] + 36); d[o + 1] = Math.min(255, d[o + 1] + 34); d[o + 2] = Math.min(255, d[o + 2] + 46); }
+        continue;
+      }
+      let near = 0;
+      for (let dy = -rad; dy <= rad; dy++) for (let dx = -rad; dx <= rad; dx++) {
+        const xx = x + dx, yy = y + dy; if (xx < 0 || yy < 0 || xx >= w || yy >= h) continue;
+        if (A[yy * w + xx] > 80) { const dist = Math.hypot(dx, dy); if (dist <= rad) near = Math.max(near, (1 - dist / (rad + 0.5)) * A[yy * w + xx]); }
+      }
+      if (near > 10) { const o = p * 4; d[o] = rR; d[o + 1] = rG; d[o + 2] = rB; d[o + 3] = Math.min(255, Math.max(d[o + 3], near * 0.85)); }
+    }
+    ctx.putImageData(img, 0, 0); return src;
   }
   function spriteSheet(type) {
     if (B.sheets[type]) return B.sheets[type];
@@ -269,8 +312,11 @@ vec3 c=vk>0.5?vec3(1.0,0.82,0.55):vec3(0.62,0.78,1.0);gl_FragColor=vec4(c*a,a);}
     const two = Math.PI * 2; const ang = ((a % two) + two) % two;
     const i = Math.round(ang / two * BAKE_N) % BAKE_N;
     const baked = (i / BAKE_N) * two; const residual = ang - baked;
-    const L = 52 * s;
+    const L = Math.max(52 * s, 48);
     c.save(); c.translate(x, y); c.rotate(residual); c.globalAlpha = alpha == null ? 1 : alpha;
+    c.shadowColor = 'rgba(226,234,245,0.95)'; c.shadowBlur = Math.max(3.5, L * 0.07);
+    c.drawImage(frames[i], -L / 2, -L / 2, L, L);
+    c.shadowBlur = 0; c.shadowColor = 'rgba(0,0,0,0)';
     c.drawImage(frames[i], -L / 2, -L / 2, L, L);
     c.restore(); return true;
   }
@@ -280,6 +326,6 @@ vec3 c=vk>0.5?vec3(1.0,0.82,0.55):vec3(0.62,0.78,1.0);gl_FragColor=vec4(c*a,a);}
       if (type !== V.type) { V.type = type; if (V.ok) upload(type); V.zoom = 1; }
       host.classList.toggle('flat', !V.ok); if (!V.raf) { V.last = 0; V.raf = requestAnimationFrame(draw); } },
     info: () => ({ ok: V.ok, type: V.type, frames: V.frames, yaw: V.yaw, pitch: V.pitch, zoom: V.zoom, tris: V.type ? model(V.type).tris : 0, mounted: !!(V.cv && V.cv.isConnected) }),
-    model, KIND, drawSprite, spriteSheet, BAKE_N,
+    model, KIND, drawSprite, spriteSheet, enhanceFrame, BAKE_N,
   };
 })(typeof window !== 'undefined' ? window.G : globalThis.G);

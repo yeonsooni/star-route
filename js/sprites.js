@@ -17,16 +17,87 @@
     if (kind === 'raven') return s >= 1.4 ? 'raven-large' : 'raven-small';
     return s >= 1.4 ? 'void-large' : 'void-small';
   };
+  // v12: 어두운 성운 배경에서도 함선이 보이게 — 후광·림·엔진 불빛, 최소 크기. 세력마다 강조색만 다름.
+  const MIN_L = { player: 48, navy: 36, raven: 34, void: 34 };
+  const AURA = {
+    player: { halo: '210,224,242', rim: '226,234,245', eng: '155,198,255' },
+    navy: { halo: '150,188,230', rim: '176,208,236', eng: '120,176,255' },
+    raven: { halo: '214,176,120', rim: '230,200,150', eng: '255,152,80' },
+    void: { halo: '130,214,176', rim: '150,230,196', eng: '70,255,170' },
+  };
+  function shipL(s, kind, hull) {
+    const base = 52 * s * (kind === 'player' ? (HULL_LEN[hull] || 1) : 1);
+    return Math.max(base, MIN_L[kind] || 32);
+  }
+  function drawHalo(c, L, kind, t) {
+    const col = AURA[kind] || AURA.player;
+    const pulse = 0.88 + 0.12 * Math.sin((t || 0) * 2.6);
+    const R = L * 0.55;
+    const g = c.createRadialGradient(0, 0, L * 0.08, 0, 0, R);
+    g.addColorStop(0, `rgba(${col.halo},${0.32 * pulse})`);
+    g.addColorStop(0.4, `rgba(${col.halo},${0.12 * pulse})`);
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    c.fillStyle = g; c.beginPath(); c.arc(0, 0, R, 0, 7); c.fill();
+  }
+  function drawEngine(c, L, kind, t) {
+    const col = AURA[kind] || AURA.player;
+    const flick = 0.72 + 0.28 * Math.sin((t || 0) * 6.5);
+    const ex = -L * 0.28, R = L * (kind === 'player' ? 0.22 : 0.17);
+    c.save(); c.globalCompositeOperation = 'lighter';
+    const g = c.createRadialGradient(ex, 0, 0, ex, 0, R);
+    g.addColorStop(0, `rgba(255,255,255,${0.65 * flick})`);
+    g.addColorStop(0.22, `rgba(${col.eng},${0.85 * flick})`);
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    c.fillStyle = g; c.beginPath(); c.arc(ex, 0, R, 0, 7); c.fill();
+    c.restore();
+  }
+  const litCache = {};
+  function litSprite(im, kind) {
+    if (!im || !(im.width || im.naturalWidth)) return im;
+    const key = kind + ':' + (im.src || '') + ':' + (im.naturalWidth || im.width);
+    if (litCache[key]) return litCache[key];
+    const w = im.naturalWidth || im.width, h = im.naturalHeight || im.height;
+    const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+    const x = cv.getContext('2d'); x.drawImage(im, 0, 0, w, h);
+    const lift = kind === 'void' ? 0.32 : kind === 'navy' ? 0.16 : kind === 'raven' ? 0.12 : 0.05;
+    const img = x.getImageData(0, 0, w, h), d = img.data, A = new Uint8ClampedArray(w * h);
+    for (let i = 0, p = 0; i < d.length; i += 4, p++) {
+      A[p] = d[i + 3];
+      if (d[i + 3] < 8) continue;
+      d[i] = d[i] + (235 - d[i]) * lift;
+      d[i + 1] = d[i + 1] + (232 - d[i + 1]) * lift;
+      d[i + 2] = d[i + 2] + (238 - d[i + 2]) * lift;
+    }
+    const rgb = (AURA[kind] || AURA.player).rim.split(',').map(Number), rad = 2;
+    for (let y = 0; y < h; y++) for (let xx = 0; xx < w; xx++) {
+      const p = y * w + xx;
+      if (A[p] > 70) continue;
+      let near = 0;
+      for (let dy = -rad; dy <= rad; dy++) for (let dx = -rad; dx <= rad; dx++) {
+        const x2 = xx + dx, y2 = y + dy; if (x2 < 0 || y2 < 0 || x2 >= w || y2 >= h) continue;
+        if (A[y2 * w + x2] > 70) { const dist = Math.hypot(dx, dy); if (dist <= rad) near = Math.max(near, (1 - dist / (rad + 0.4)) * A[y2 * w + x2]); }
+      }
+      if (near > 12) { const o = p * 4; d[o] = rgb[0]; d[o + 1] = rgb[1]; d[o + 2] = rgb[2]; d[o + 3] = Math.min(255, Math.max(d[o + 3], near * 0.8)); }
+    }
+    x.putImageData(img, 0, 0); return (litCache[key] = cv);
+  }
   Art.drawShip = (c, x, y, a, s, kind, t, alpha, hull) => {
     hull = hull || (kind === 'player' ? Art.hull : null);
-    // 내 함선·같은 함급(hull이 있는 함선)은 정비고 3D 모델을 위에서 본 스프라이트로. 실패하면 기존 그림.
-    if (hull && G.Ship3D && G.Ship3D.KIND[hull] && G.Ship3D.drawSprite && G.Ship3D.drawSprite(c, x, y, a, s * (HULL_LEN[hull] || 1), hull, alpha)) return;
-    const im = IMG[Art.spriteFor(kind, s, hull)]; if (!im) return old.ship(c, x, y, a, s, kind, t, alpha);
-    const L = 52 * s * (kind === 'player' ? (HULL_LEN[hull] || 1) : 1); const H = L * im.height / im.width;
-    c.save(); c.translate(x, y); c.rotate(a); c.globalAlpha = alpha == null ? 1 : alpha;
+    const L = shipL(s, kind, hull);
+    c.save(); c.translate(x, y); c.globalAlpha = alpha == null ? 1 : alpha;
+    drawHalo(c, L, kind, t);
+    c.rotate(a); drawEngine(c, L, kind, t); c.rotate(-a);
+    // 내 함선·같은 함급은 정비고 3D 모델을 위에서 본 스프라이트로. L은 이미 함급 길이를 반영.
+    if (hull && G.Ship3D && G.Ship3D.KIND[hull] && G.Ship3D.drawSprite && G.Ship3D.drawSprite(c, 0, 0, a, L / 52, hull, 1)) { c.restore(); return; }
+    const im0 = IMG[Art.spriteFor(kind, s, hull)];
+    if (!im0) { old.ship(c, 0, 0, a, s, kind, t, 1); c.restore(); return; }
+    const im = litSprite(im0, kind);
+    const H = L * im.height / im.width;
+    const col = AURA[kind] || AURA.player;
+    c.rotate(a);
+    c.save(); c.shadowColor = `rgba(${col.rim},0.95)`; c.shadowBlur = Math.max(3.5, L * 0.07);
+    c.drawImage(im, -L / 2, -H / 2, L, H); c.restore();
     c.drawImage(im, -L / 2, -H / 2, L, H);
-    // 엔진 불빛이 살짝 일렁이게
-    if (kind === 'player' || kind === 'navy') { c.globalCompositeOperation = 'lighter'; c.globalAlpha *= 0.25 + 0.15 * Math.sin((t || 0) * 6); const g = c.createRadialGradient(-L / 2, 0, 0, -L / 2, 0, L * 0.18); g.addColorStop(0, 'rgba(140,180,255,0.9)'); g.addColorStop(1, 'rgba(0,0,0,0)'); c.fillStyle = g; c.fillRect(-L * 0.7, -L * 0.25, L * 0.4, L * 0.5); }
     c.restore();
   };
   // 항성: 같은 그림을 항성 색으로 물들여 둠

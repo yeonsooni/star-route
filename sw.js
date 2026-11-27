@@ -1,6 +1,6 @@
 // 성간 개척 일지 — 오프라인 저장소 (인터넷 주소로 열었을 때만 쓰여요)
 // 파일을 바꾸면 VERSION 숫자를 올려 주세요. 그래야 새 파일로 바뀝니다.
-const VERSION = 'sgl-v10-4';
+const VERSION = 'sgl-v12-1';
 const FILES = [
   './',
   'index.html',
