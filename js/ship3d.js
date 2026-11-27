@@ -12,6 +12,12 @@
     rz(t) { const c = Math.cos(t), s = Math.sin(t); return [c, s, 0, 0, -s, c, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]; },
     tr(x, y, z) { return [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, x, y, z, 1]; },
     sc(s) { return [s, 0, 0, 0, 0, s, 0, 0, 0, 0, s, 0, 0, 0, 0, 1]; },
+    lookAt(ex, ey, ez, tx, ty, tz, ux, uy, uz) {
+      let zx = ex - tx, zy = ey - ty, zz = ez - tz, zl = Math.hypot(zx, zy, zz) || 1; zx /= zl; zy /= zl; zz /= zl;
+      let xx = uy * zz - uz * zy, xy = uz * zx - ux * zz, xz = ux * zy - uy * zx, xl = Math.hypot(xx, xy, xz) || 1; xx /= xl; xy /= xl; xz /= xl;
+      const yx = zy * xz - zz * xy, yy = zz * xx - zx * xz, yz = zx * xy - zy * xx;
+      return [xx, yx, zx, 0, xy, yy, zy, 0, xz, yz, zz, 0, -(xx * ex + xy * ey + xz * ez), -(yx * ex + yy * ey + yz * ez), -(zx * ex + zy * ey + zz * ez), 1];
+    },
   };
   const hex = (h) => { const n = parseInt(h.slice(1), 16); return [(n >> 16 & 255) / 255, (n >> 8 & 255) / 255, (n & 255) / 255]; };
   // 은은한 팔레트 (기존 뮤트 색감)
@@ -22,7 +28,7 @@
   Mesh.prototype.tri = function (a, b, c, col, em) {
     const u = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], v = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
     let n = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]]; const l = Math.hypot(n[0], n[1], n[2]) || 1; n = n.map(x => x / l);
-    const j = 1 + ((this.p.length * 7919) % 13 - 6) / 160; // 면마다 아주 약간 다른 밝기 — 판금 느낌
+    const j = 1 + ((this.p.length * 7919) % 17 - 8) / 70; // 면마다 다른 밝기 — 판금·풍화 느낌
     [a, b, c].forEach(q => { this.p.push(q[0], q[1], q[2]); this.n.push(n[0], n[1], n[2]); this.c.push(col[0] * j, col[1] * j, col[2] * j); this.e.push(em || 0); });
   };
   Mesh.prototype.quad = function (a, b, c, d, col, em) { this.tri(a, b, c, col, em); this.tri(a, c, d, col, em); };
@@ -64,60 +70,170 @@
   Mesh.prototype.both = function (f) { f(1); f(-1); return this; };
   Mesh.prototype.light = function (x, y, z, r) { this.glow.push([x, y, z, r, 1]); return this; };
 
-  // 함선 종류별 모양 (+z가 뱃머리)
-  const BUILD = {
-    shuttle(m) { m.loft(HEX, [{ z: -1.0, w: 0.34, h: 0.26 }, { z: -0.5, w: 0.42, h: 0.32 }, { z: 0.35, w: 0.36, h: 0.28, y: 0.02 }, { z: 0.85, w: 0.16, h: 0.12, y: 0.0 }, { z: 1.05, w: 0.02, h: 0.02 }], PAL.hull, { belly: PAL.hull2 });
-      m.box(0, 0.27, 0.15, 0.16, 0.06, 0.28, PAL.glass, 0.6);
-      m.both(s => m.slab([[0.36 * s, -0.55], [0.95 * s, -0.85], [0.95 * s, -0.6], [0.36 * s, 0.1]], -0.05, 0.05, PAL.hull));
-      m.both(s => m.slab([[0.9 * s, -0.86], [1.0 * s, -0.86], [1.0 * s, -0.5], [0.9 * s, -0.55]], -0.05, 0.07, PAL.accent));
-      m.engine(0, 0, -1.0, 0.2, 0.25); m.light(0, 0.3, 0.55, 0.05); },
-    scout(m, sci) { m.loft(HEX, [{ z: -1.1, w: 0.2, h: 0.16 }, { z: -0.6, w: 0.28, h: 0.2 }, { z: 0.4, w: 0.2, h: 0.15 }, { z: 1.3, w: 0.01, h: 0.01 }], PAL.hull, { belly: PAL.hull2 });
-      m.box(0, 0.18, 0.05, 0.09, 0.05, 0.3, PAL.glass, 0.5);
-      m.both(s => m.slab([[0.24 * s, -0.75], [1.05 * s, -1.15], [1.1 * s, -1.0], [0.22 * s, 0.25]], 0, 0.035, PAL.hull));
-      m.both(s => m.slab([[0.95 * s, -1.12], [1.12 * s, -1.02], [1.08 * s, -0.7], [0.92 * s, -0.8]], 0, 0.05, sci ? PAL.lv : PAL.sky));
-      m.both(s => m.engine(0.14 * s, 0, -1.1, 0.1, 0.3));
-      if (sci) { m.loft(OCT, [{ z: 0.55, w: 0.0, h: 0.0, y: 0.25 }, { z: 0.62, w: 0.22, h: 0.22, y: 0.25 }, { z: 0.66, w: 0.24, h: 0.24, y: 0.25 }], PAL.lv); m.box(0, 0.16, 0.55, 0.02, 0.08, 0.02, PAL.hull2); }
-      m.fin([[0.12, -1.0], [0.45, -1.15], [0.45, -0.95], [0.12, -0.45]], 0, 0.03, PAL.hull2); m.light(0.95, 0, -1.1, 0.04); m.light(-0.95, 0, -1.1, 0.04); },
-    miner(m, big) { const k = big ? 1.25 : 1;
-      m.loft(RECT, [{ z: -1.0, w: 0.42 * k, h: 0.3 * k }, { z: -0.2, w: 0.5 * k, h: 0.36 * k }, { z: 0.45, w: 0.45 * k, h: 0.32 * k }, { z: 0.7, w: 0.3 * k, h: 0.22 * k }], PAL.hull, { belly: PAL.hull2 });
-      m.box(0, 0.36 * k, 0.25, 0.18 * k, 0.08 * k, 0.18, PAL.glass, 0.7);
-      m.both(s => { m.box(0.32 * s * k, -0.05, 0.95, 0.07 * k, 0.07 * k, 0.32, PAL.accent, 0.7); m.box(0.32 * s * k, -0.05, 1.3, 0.03, 0.03, 0.06, PAL.gold); m.light(0.32 * s * k, -0.05, 1.37, 0.05); });
-      m.both(s => m.box(0.62 * s * k, -0.04, -0.35, 0.14 * k, 0.2 * k, 0.45, PAL.hull2));
-      if (big) m.both(s => m.box(0.9 * s * k, -0.04, -0.35, 0.12 * k, 0.17 * k, 0.4, PAL.accent));
-      m.both(s => m.engine(0.26 * s * k, 0, -1.0, 0.13 * k, 0.28)); },
-    escort(m) { m.loft(HEX, [{ z: -1.05, w: 0.36, h: 0.2 }, { z: -0.4, w: 0.44, h: 0.24 }, { z: 0.5, w: 0.26, h: 0.17, y: -0.02 }, { z: 1.25, w: 0.03, h: 0.04, y: -0.04 }], PAL.hull, { belly: PAL.hull2 });
-      m.box(0, 0.22, -0.2, 0.12, 0.06, 0.26, PAL.glass, 0.55);
-      m.both(s => m.slab([[0.36 * s, -0.95], [1.0 * s, -0.55], [1.05 * s, -0.35], [0.4 * s, 0.25]], -0.02, 0.05, PAL.hull));
-      m.both(s => { m.box(0.92 * s, -0.02, 0.0, 0.05, 0.05, 0.4, PAL.red, 0.8); m.box(0.92 * s, -0.02, 0.45, 0.02, 0.02, 0.1, PAL.dark); });
-      m.both(s => m.engine(0.18 * s, 0, -1.05, 0.13, 0.3));
-      m.both(s => m.fin([[0.1, -0.95], [0.42, -1.1], [0.42, -0.95], [0.12, -0.5]], 0.28 * s, 0.03, PAL.red)); },
-    hauler(m) { m.loft(RECT, [{ z: -1.2, w: 0.12, h: 0.12 }, { z: 0.9, w: 0.1, h: 0.1 }], PAL.hull2);
-      m.loft(HEX, [{ z: 0.8, w: 0.34, h: 0.26 }, { z: 1.15, w: 0.3, h: 0.22 }, { z: 1.35, w: 0.12, h: 0.1 }], PAL.hull, { frontCol: PAL.glass });
-      for (let i = 0; i < 4; i++) { const z = 0.5 - i * 0.42; [[1, 1], [-1, 1], [1, -1], [-1, -1]].forEach(([sx, sy]) => m.box(0.24 * sx, 0.2 * sy, z, 0.19, 0.17, 0.18, (i + (sx > 0 ? 1 : 0)) % 3 === 0 ? PAL.accent : (i % 2 ? PAL.hull : PAL.sky))); }
-      m.box(0, 0, -1.25, 0.42, 0.3, 0.12, PAL.hull);
-      [[1, 1], [-1, 1], [1, -1], [-1, -1]].forEach(([sx, sy]) => m.engine(0.22 * sx, 0.14 * sy, -1.37, 0.1, 0.2)); },
-    cruiser(m) { m.loft(HEX, [{ z: -1.1, w: 0.4, h: 0.24 }, { z: -0.5, w: 0.52, h: 0.3 }, { z: 0.3, w: 0.42, h: 0.24 }, { z: 1.0, w: 0.16, h: 0.1, y: -0.03 }, { z: 1.3, w: 0.02, h: 0.02, y: -0.04 }], PAL.hull, { belly: PAL.hull2 });
-      m.loft(HEX, [{ z: -0.75, w: 0.16, h: 0.1, y: 0.28 }, { z: -0.3, w: 0.2, h: 0.14, y: 0.32 }, { z: 0.2, w: 0.06, h: 0.05, y: 0.27 }], PAL.hull2, { frontCol: PAL.glass });
-      m.both(s => m.slab([[0.42 * s, -0.95], [1.1 * s, -1.05], [1.15 * s, -0.8], [0.48 * s, 0.1]], -0.04, 0.05, PAL.hull));
-      m.both(s => m.box(1.08 * s, -0.04, -0.6, 0.08, 0.1, 0.42, PAL.sky, 0.85));
-      m.both(s => m.engine(0.2 * s, 0.02, -1.1, 0.14, 0.32)); m.engine(0, 0.16, -1.05, 0.1, 0.25);
-      m.both(s => m.light(1.08 * s, 0.06, -0.15, 0.05)); },
-    heavy(m) { m.loft(HEX, [{ z: -1.15, w: 0.48, h: 0.3 }, { z: -0.4, w: 0.6, h: 0.36 }, { z: 0.45, w: 0.46, h: 0.27 }, { z: 1.05, w: 0.2, h: 0.12 }, { z: 1.35, w: 0.03, h: 0.03 }], PAL.hull, { belly: PAL.hull2 });
-      m.loft(RECT, [{ z: -0.9, w: 0.22, h: 0.1, y: 0.36 }, { z: -0.2, w: 0.2, h: 0.14, y: 0.42 }, { z: 0.2, w: 0.1, h: 0.08, y: 0.38 }], PAL.hull2, { frontCol: PAL.glass });
-      m.box(0, 0.62, -0.55, 0.04, 0.12, 0.04, PAL.dark); m.light(0, 0.75, -0.55, 0.04);
-      m.both(s => m.slab([[0.55 * s, -1.0], [1.05 * s, -0.85], [1.0 * s, -0.3], [0.5 * s, 0.35]], -0.06, 0.07, PAL.hull));
-      m.both(s => { m.box(0.95 * s, 0.02, -0.55, 0.1, 0.1, 0.36, PAL.red, 0.85); m.box(0.4 * s, 0.32, 0.25, 0.08, 0.05, 0.12, PAL.dark); m.box(0.4 * s, 0.32, 0.42, 0.02, 0.02, 0.12, PAL.hull2); });
-      m.both(s => m.engine(0.26 * s, 0, -1.15, 0.16, 0.34)); m.engine(0, 0.2, -1.1, 0.13, 0.28); },
-    battleship(m) { m.loft(HEX, [{ z: -1.25, w: 0.5, h: 0.32 }, { z: -0.6, w: 0.62, h: 0.38 }, { z: 0.4, w: 0.55, h: 0.32 }, { z: 1.1, w: 0.3, h: 0.18 }, { z: 1.4, w: 0.12, h: 0.06 }], PAL.hull, { belly: PAL.hull2 });
-      m.loft(RECT, [{ z: -1.0, w: 0.32, h: 0.12, y: 0.4 }, { z: 0.6, w: 0.24, h: 0.1, y: 0.4 }], PAL.hull2);
-      m.loft(HEX, [{ z: -0.95, w: 0.16, h: 0.12, y: 0.6 }, { z: -0.55, w: 0.18, h: 0.16, y: 0.66 }, { z: -0.3, w: 0.07, h: 0.06, y: 0.6 }], PAL.hull, { frontCol: PAL.glass });
-      for (let i = 0; i < 3; i++) m.both(s => { m.box(0.22 * s, 0.56, 0.45 - i * 0.38, 0.07, 0.05, 0.09, PAL.dark); m.box(0.22 * s, 0.56, 0.6 - i * 0.38, 0.015, 0.015, 0.12, PAL.hull2); });
-      m.both(s => m.slab([[0.6 * s, -1.15], [1.05 * s, -1.05], [1.0 * s, -0.4], [0.55 * s, 0.1]], -0.08, 0.08, PAL.hull));
-      m.both(s => m.box(0.98 * s, -0.08, -0.75, 0.09, 0.12, 0.35, PAL.accent, 0.85));
-      [[0.3, 0.12], [-0.3, 0.12], [0.3, -0.14], [-0.3, -0.14]].forEach(([x, y]) => m.engine(x, y, -1.25, 0.14, 0.32));
-      m.both(s => m.light(1.0 * s, 0.07, -0.35, 0.05)); },
-    capsule(m) { m.loft(OCT, [{ z: -0.4, w: 0.12, h: 0.12 }, { z: -0.2, w: 0.3, h: 0.3 }, { z: 0.25, w: 0.28, h: 0.28 }, { z: 0.45, w: 0.05, h: 0.05 }], PAL.hull); m.engine(0, 0, -0.4, 0.1, 0.1); },
+  Mesh.prototype.emBox = function (x, y, z, sx, sy, sz, col, em) {
+    const p = (dx, dy, dz) => [x + dx * sx, y + dy * sy, z + dz * sz];
+    const A = p(-1, -1, -1), B = p(1, -1, -1), C = p(1, 1, -1), D = p(-1, 1, -1);
+    const E = p(-1, -1, 1), F = p(1, -1, 1), G = p(1, 1, 1), H = p(-1, 1, 1);
+    this.quad(H, G, F, E, col, em); this.quad(A, B, C, D, col, em);
+    this.quad(D, C, G, H, col, em); this.quad(A, E, F, B, col, em);
+    this.quad(E, A, D, H, col, em); this.quad(B, F, G, C, col, em); return this;
   };
+  Mesh.prototype.spine = function (x, y, z, len, r, col) {
+    return this.loft(RECT, [{ z, w: r, h: r, x, y }, { z: z + len, w: r * 0.3, h: r * 0.3, x, y }], col || PAL.dark);
+  };
+  Mesh.prototype.mast = function (x, y0, z, h, r, col) {
+    return this.loft(RECT, [{ z, w: r, h: r, x, y: y0 }, { z, w: r * 0.35, h: r * 0.35, x, y: y0 + h }], col || PAL.dark);
+  };
+  Mesh.prototype.port = function (x, y, z, s) {
+    this.emBox(x, y, z, 0.02 * (s || 1), 0.014 * (s || 1), 0.016 * (s || 1), PAL.glass, 0.9);
+    this.light(x, y, z, 0.028 * (s || 1)); return this;
+  };
+  Mesh.prototype.portRow = function (x, y, z0, z1, n, s) {
+    for (let i = 0; i < n; i++) this.port(x, y, z0 + (z1 - z0) * (n === 1 ? 0.5 : i / (n - 1)), s); return this;
+  };
+  Mesh.prototype.belts = function (z0, z1, n, w, h, col) {
+    for (let i = 0; i < n; i++) this.box(0, 0.01, z0 + (z1 - z0) * (i + 0.5) / n, w, h, 0.028, col || PAL.hull2);
+    return this;
+  };
+  Mesh.prototype.greeble = function (seed, z0, z1, w, h, n, col) {
+    for (let i = 0; i < n; i++) {
+      const k = (Math.imul(seed + i * 9973, 1103515245) >>> 0);
+      const s = (k & 1) ? 1 : -1;
+      const z = z0 + ((k >>> 3) % 1000) / 1000 * (z1 - z0);
+      const x = (0.25 + ((k >>> 7) % 80) / 80 * 0.75) * w * s;
+      const y = (((k >>> 11) % 70) / 70 - 0.25) * h;
+      this.box(x, y, z, 0.035 + ((k >>> 2) % 7) * 0.007, 0.02 + ((k >>> 5) % 5) * 0.006, 0.045 + ((k >>> 8) % 9) * 0.01, col || PAL.dark);
+    }
+    return this;
+  };
+  Mesh.prototype.cluster = function (pts, r, len) { pts.forEach(([x, y, z]) => this.engine(x, y, z, r, len)); return this; };
+
+  // 함선 종류별 모양 (+z가 뱃머리) — 가늘고 긴 선체, 겹친 장갑판, 비대칭 상부, 창과 엔진 묶음
+  const BUILD = {
+    shuttle(m) {
+      m.loft(HEX, [{ z: -1.25, w: 0.22, h: 0.16 }, { z: -0.85, w: 0.32, h: 0.24 }, { z: -0.2, w: 0.36, h: 0.26 }, { z: 0.45, w: 0.3, h: 0.22, y: 0.02 }, { z: 1.05, w: 0.16, h: 0.12 }, { z: 1.42, w: 0.03, h: 0.03 }], PAL.hull, { belly: PAL.dark });
+      m.belts(-0.9, 0.7, 5, 0.38, 0.28, PAL.hull2);
+      m.box(0.06, 0.3, -0.15, 0.12, 0.1, 0.32, PAL.hull2);
+      m.box(0.06, 0.38, -0.05, 0.08, 0.05, 0.16, PAL.glass, 0.7);
+      m.portRow(0.06, 0.42, -0.28, 0.18, 4, 0.9);
+      m.both(s => m.portRow(0.34 * s, 0.04, -0.55, 0.55, 5, 0.75));
+      m.both(s => { m.slab([[0.3 * s, -0.7], [0.92 * s, -1.05], [0.88 * s, -0.55], [0.32 * s, 0.35]], -0.04, 0.045, PAL.hull, PAL.hull2); m.box(0.72 * s, -0.02, -0.55, 0.08, 0.05, 0.22, PAL.accent); });
+      m.spine(-0.22, 0.34, -0.7, 0.55, 0.012, PAL.dark); m.spine(-0.18, 0.32, -0.55, 0.28, 0.008, PAL.hull2);
+      m.greeble(11, -0.8, 0.6, 0.28, 0.16, 8, PAL.dark);
+      m.engine(-0.12, 0.02, -1.25, 0.1, 0.22); m.engine(0.12, 0.02, -1.25, 0.1, 0.22); m.engine(0, -0.06, -1.22, 0.07, 0.16);
+      m.light(0, 0.12, 1.2, 0.04); m.both(s => m.light(0.7 * s, 0, -0.3, 0.035));
+    },
+    scout(m, sci) {
+      m.loft(HEX, [{ z: -1.4, w: 0.12, h: 0.1 }, { z: -0.8, w: 0.2, h: 0.14 }, { z: 0.2, w: 0.18, h: 0.13 }, { z: 1.0, w: 0.1, h: 0.08 }, { z: 1.55, w: 0.015, h: 0.015 }], PAL.hull, { belly: PAL.dark });
+      m.belts(-0.7, 0.8, 4, 0.22, 0.16, PAL.hull2);
+      m.box(0, 0.16, 0.05, 0.07, 0.04, 0.28, PAL.glass, 0.55);
+      m.portRow(0, 0.2, -0.35, 0.45, 5, 0.7);
+      m.both(s => m.slab([[0.16 * s, -0.85], [1.15 * s, -1.2], [1.2 * s, -0.85], [0.18 * s, 0.15]], 0.0, 0.03, PAL.hull, PAL.hull2));
+      m.both(s => m.box(0.7 * s, 0.02, -0.85, 0.1, 0.05, 0.28, sci ? PAL.lv : PAL.sky));
+      m.both(s => m.engine(0.55 * s, 0, -1.35, 0.08, 0.26));
+      if (sci) {
+        m.loft(OCT, [{ z: 0.35, w: 0, h: 0, x: -0.28, y: 0.18 }, { z: 0.48, w: 0.2, h: 0.2, x: -0.32, y: 0.2 }, { z: 0.62, w: 0.18, h: 0.18, x: -0.32, y: 0.2 }], PAL.lv);
+        m.spine(-0.32, 0.4, 0.55, 0.35, 0.01, PAL.dark);
+        m.portRow(-0.32, 0.32, 0.42, 0.58, 3, 0.6);
+      } else {
+        m.box(0.28, 0.12, 0.55, 0.06, 0.04, 0.22, PAL.sky); m.spine(0.3, 0.18, 0.7, 0.4, 0.01);
+      }
+      m.fin([[0.08, -1.2], [0.32, -1.35], [0.3, -1.05], [0.08, -0.5]], 0, 0.02, PAL.hull2);
+      m.greeble(sci ? 21 : 17, -0.9, 0.6, 0.14, 0.1, 6);
+      m.both(s => m.light(1.05 * s, 0, -0.95, 0.03)); m.light(0, 0.06, 1.4, 0.03);
+    },
+    miner(m, big) {
+      const k = big ? 1.28 : 1;
+      m.loft(RECT, [{ z: -1.15 * k, w: 0.28 * k, h: 0.2 * k }, { z: -0.3 * k, w: 0.42 * k, h: 0.3 * k }, { z: 0.5 * k, w: 0.38 * k, h: 0.26 * k }, { z: 0.85 * k, w: 0.22 * k, h: 0.16 * k }, { z: 1.2 * k, w: 0.06 * k, h: 0.06 * k }], PAL.hull, { belly: PAL.dark });
+      m.belts(-0.8 * k, 0.55 * k, big ? 6 : 4, 0.45 * k, 0.32 * k, PAL.hull2);
+      m.box(0.08 * k, 0.34 * k, 0.15 * k, 0.14 * k, 0.1 * k, 0.2 * k, PAL.hull2);
+      m.box(0.08 * k, 0.42 * k, 0.2 * k, 0.1 * k, 0.05 * k, 0.12 * k, PAL.glass, 0.65);
+      m.portRow(0.08 * k, 0.46 * k, 0.02 * k, 0.32 * k, 3, k);
+      m.box(0.58 * k, 0.02, -0.15 * k, 0.2 * k, 0.22 * k, 0.42 * k, PAL.accent);
+      m.box(-0.62 * k, -0.04, -0.05 * k, 0.22 * k, 0.26 * k, 0.5 * k, PAL.hull2);
+      if (big) { m.box(0.85 * k, 0.0, -0.2 * k, 0.16 * k, 0.18 * k, 0.35 * k, PAL.accent); m.box(-0.9 * k, -0.02, -0.15 * k, 0.16 * k, 0.2 * k, 0.38 * k, PAL.sky); }
+      m.both(s => {
+        m.box(0.22 * s * k, -0.06, 0.95 * k, 0.06 * k, 0.06 * k, 0.28 * k, PAL.dark);
+        m.box(0.22 * s * k, -0.06, 1.28 * k, 0.04 * k, 0.04 * k, 0.12 * k, PAL.gold);
+        m.light(0.22 * s * k, -0.06, 1.4 * k, 0.04 * k);
+      });
+      m.greeble(big ? 41 : 31, -0.7 * k, 0.4 * k, 0.3 * k, 0.16 * k, big ? 12 : 8, PAL.dark);
+      m.cluster([[-0.2 * k, 0.06, -1.15 * k], [0.2 * k, 0.06, -1.15 * k], [0, -0.08, -1.12 * k]], 0.1 * k, 0.22);
+      if (big) m.both(s => m.engine(0.38 * s * k, -0.04, -1.1 * k, 0.08 * k, 0.18));
+      m.portRow(0.44 * k, 0.16 * k, -0.4 * k, 0.2 * k, 3, 0.8 * k);
+    },
+    escort(m) {
+      m.loft(HEX, [{ z: -1.2, w: 0.24, h: 0.14 }, { z: -0.55, w: 0.36, h: 0.2 }, { z: 0.15, w: 0.3, h: 0.16, y: -0.01 }, { z: 0.85, w: 0.16, h: 0.1, y: -0.03 }, { z: 1.4, w: 0.03, h: 0.03, y: -0.04 }], PAL.hull, { belly: PAL.dark });
+      m.belts(-0.8, 0.5, 5, 0.38, 0.22, PAL.hull2);
+      m.box(-0.08, 0.24, -0.25, 0.1, 0.1, 0.28, PAL.hull2);
+      m.mast(-0.08, 0.32, -0.2, 0.22, 0.02, PAL.dark);
+      m.spine(-0.1, 0.52, -0.15, 0.25, 0.008);
+      m.box(-0.08, 0.28, -0.15, 0.07, 0.04, 0.12, PAL.glass, 0.6);
+      m.both(s => { m.slab([[0.28 * s, -0.85], [0.95 * s, -0.55], [1.05 * s, -0.15], [0.32 * s, 0.35]], -0.02, 0.04, PAL.hull); m.box(0.88 * s, 0.0, 0.05, 0.07, 0.06, 0.32, PAL.red, 0.85); });
+      m.both(s => m.fin([[0.08, -1.05], [0.36, -1.2], [0.34, -0.95], [0.1, -0.45]], 0.22 * s, 0.025, PAL.red));
+      m.portRow(0, 0.14, -0.6, 0.4, 5, 0.7);
+      m.greeble(53, -0.7, 0.4, 0.24, 0.1, 7);
+      m.engine(-0.14, 0.02, -1.2, 0.1, 0.24); m.engine(0.14, 0.02, -1.2, 0.1, 0.24); m.engine(0, -0.08, -1.15, 0.07, 0.18);
+      m.both(s => m.light(0.95 * s, 0.04, 0.35, 0.03)); m.light(0, 0.02, 1.25, 0.03);
+    },
+    hauler(m) {
+      m.loft(RECT, [{ z: -1.45, w: 0.1, h: 0.1 }, { z: 0.7, w: 0.09, h: 0.09 }], PAL.hull2);
+      m.loft(HEX, [{ z: 0.65, w: 0.26, h: 0.18 }, { z: 1.05, w: 0.28, h: 0.2 }, { z: 1.4, w: 0.12, h: 0.1 }, { z: 1.55, w: 0.03, h: 0.03 }], PAL.hull, { frontCol: PAL.glass });
+      m.box(0.05, 0.2, 1.05, 0.1, 0.07, 0.16, PAL.hull2);
+      m.portRow(0.05, 0.26, 0.92, 1.18, 3, 0.8);
+      const mods = [[0.42, 0.14, 0.45, PAL.accent], [-0.44, -0.1, 0.4, PAL.hull], [0.42, 0.14, -0.05, PAL.sky], [-0.44, -0.1, -0.1, PAL.accent], [0.42, 0.14, -0.55, PAL.hull], [-0.44, -0.1, -0.6, PAL.hull2], [0.42, 0.12, -1.0, PAL.accent], [-0.44, -0.08, -1.05, PAL.sky]];
+      mods.forEach(([x, y, z, c]) => m.box(x, y, z, 0.2, 0.16, 0.2, c));
+      m.box(0, 0, -1.5, 0.36, 0.22, 0.1, PAL.hull);
+      m.cluster([[0.18, 0.1, -1.62], [-0.18, 0.1, -1.62], [0.18, -0.1, -1.62], [-0.18, -0.1, -1.62], [0, 0, -1.65]], 0.08, 0.16);
+      m.spine(0.08, 0.28, 0.85, 0.35, 0.01); m.greeble(61, -1.2, 0.5, 0.12, 0.08, 6);
+      m.light(0, 0.08, 1.48, 0.04);
+    },
+    cruiser(m) {
+      m.loft(HEX, [{ z: -1.45, w: 0.28, h: 0.16 }, { z: -0.8, w: 0.46, h: 0.26 }, { z: 0.1, w: 0.42, h: 0.24 }, { z: 0.85, w: 0.26, h: 0.16, y: -0.02 }, { z: 1.35, w: 0.1, h: 0.08, y: -0.04 }, { z: 1.65, w: 0.02, h: 0.02, y: -0.05 }], PAL.hull, { belly: PAL.dark });
+      m.belts(-1.0, 0.7, 7, 0.48, 0.28, PAL.hull2);
+      m.loft(HEX, [{ z: -0.55, w: 0.14, h: 0.08, x: 0.08, y: 0.3 }, { z: -0.1, w: 0.18, h: 0.14, x: 0.1, y: 0.36 }, { z: 0.35, w: 0.1, h: 0.08, x: 0.08, y: 0.3 }], PAL.hull2, { frontCol: PAL.glass });
+      m.portRow(0.1, 0.46, -0.4, 0.25, 5, 0.85);
+      m.mast(0.1, 0.48, -0.15, 0.2, 0.025); m.spine(0.12, 0.66, -0.05, 0.4, 0.01); m.spine(0.06, 0.62, 0.05, 0.22, 0.008);
+      m.both(s => { m.slab([[0.38 * s, -1.05], [1.15 * s, -1.15], [1.2 * s, -0.6], [0.42 * s, 0.2]], -0.05, 0.05, PAL.hull); m.box(1.05 * s, -0.02, -0.55, 0.1, 0.1, 0.38, PAL.sky, 0.85); });
+      m.greeble(71, -1.0, 0.6, 0.32, 0.14, 12);
+      m.portRow(0, 0.14, -0.8, 0.7, 7, 0.75);
+      m.cluster([[-0.22, 0.06, -1.45], [0.22, 0.06, -1.45], [-0.22, -0.1, -1.42], [0.22, -0.1, -1.42], [0, 0.02, -1.48]], 0.1, 0.26);
+      m.both(s => m.light(1.1 * s, 0.06, -0.2, 0.04)); m.light(0, 0.04, 1.5, 0.04);
+    },
+    heavy(m) {
+      m.loft(HEX, [{ z: -1.5, w: 0.36, h: 0.2 }, { z: -0.7, w: 0.55, h: 0.32 }, { z: 0.25, w: 0.48, h: 0.28 }, { z: 1.0, w: 0.28, h: 0.16 }, { z: 1.55, w: 0.08, h: 0.06 }, { z: 1.7, w: 0.02, h: 0.02 }], PAL.hull, { belly: PAL.dark });
+      m.belts(-1.1, 0.8, 8, 0.58, 0.34, PAL.hull2);
+      m.loft(RECT, [{ z: -0.7, w: 0.18, h: 0.08, x: -0.1, y: 0.38 }, { z: 0.1, w: 0.2, h: 0.14, x: -0.12, y: 0.48 }, { z: 0.4, w: 0.1, h: 0.08, x: -0.1, y: 0.4 }], PAL.hull2, { frontCol: PAL.glass });
+      m.mast(-0.12, 0.6, -0.2, 0.22, 0.03); m.spine(-0.12, 0.82, -0.15, 0.35, 0.012); m.spine(-0.06, 0.76, 0.0, 0.2, 0.008);
+      m.portRow(-0.12, 0.58, -0.55, 0.25, 6, 1);
+      m.both(s => { m.slab([[0.48 * s, -1.15], [1.15 * s, -0.95], [1.1 * s, -0.2], [0.46 * s, 0.45]], -0.06, 0.07, PAL.hull); m.box(1.0 * s, 0.04, -0.5, 0.12, 0.1, 0.32, PAL.red, 0.85); });
+      m.greeble(83, -1.1, 0.7, 0.4, 0.16, 14);
+      m.portRow(0.2, 0.2, -0.8, 0.6, 6, 0.8);
+      m.cluster([[-0.28, 0.08, -1.5], [0.28, 0.08, -1.5], [-0.28, -0.1, -1.46], [0.28, -0.1, -1.46], [0, 0.04, -1.52]], 0.11, 0.28);
+      m.engine(0, 0.22, -1.4, 0.08, 0.2);
+      m.both(s => m.light(1.08 * s, 0.1, -0.2, 0.045)); m.light(0, 0.06, 1.55, 0.045);
+    },
+    battleship(m) {
+      m.loft(HEX, [{ z: -1.7, w: 0.4, h: 0.22 }, { z: -0.9, w: 0.62, h: 0.36 }, { z: 0.2, w: 0.58, h: 0.32 }, { z: 1.05, w: 0.36, h: 0.2 }, { z: 1.6, w: 0.16, h: 0.1 }, { z: 1.9, w: 0.04, h: 0.03 }], PAL.hull, { belly: PAL.dark });
+      m.belts(-1.3, 1.0, 10, 0.66, 0.38, PAL.hull2);
+      m.loft(RECT, [{ z: -1.0, w: 0.28, h: 0.1, x: 0.1, y: 0.38 }, { z: 0.5, w: 0.22, h: 0.1, x: 0.12, y: 0.4 }], PAL.hull2);
+      m.loft(HEX, [{ z: -0.7, w: 0.16, h: 0.12, x: 0.14, y: 0.58 }, { z: -0.2, w: 0.2, h: 0.18, x: 0.16, y: 0.68 }, { z: 0.15, w: 0.1, h: 0.08, x: 0.14, y: 0.6 }], PAL.hull, { frontCol: PAL.glass });
+      m.mast(0.16, 0.84, -0.35, 0.22, 0.03); m.spine(0.18, 1.04, -0.25, 0.45, 0.012); m.spine(0.1, 0.98, -0.1, 0.28, 0.009); m.spine(0.22, 0.95, 0.0, 0.2, 0.008);
+      m.portRow(0.16, 0.8, -0.55, 0.05, 6, 1.1);
+      for (let i = 0; i < 4; i++) m.both(s => { m.box(0.28 * s, 0.5, 0.7 - i * 0.4, 0.08, 0.06, 0.1, PAL.dark); m.box(0.28 * s, 0.5, 0.82 - i * 0.4, 0.018, 0.018, 0.14, PAL.hull2); });
+      m.both(s => { m.slab([[0.55 * s, -1.35], [1.2 * s, -1.2], [1.15 * s, -0.35], [0.52 * s, 0.3]], -0.08, 0.08, PAL.hull); m.box(1.05 * s, -0.06, -0.7, 0.12, 0.12, 0.36, PAL.accent, 0.85); });
+      m.greeble(99, -1.3, 0.9, 0.45, 0.18, 18);
+      m.portRow(0, 0.18, -1.1, 0.9, 9, 0.85);
+      [[0.32, 0.12], [-0.32, 0.12], [0.32, -0.14], [-0.32, -0.14], [0.14, 0.02], [-0.14, 0.02], [0, 0.2], [0, -0.2]].forEach(([x, y]) => m.engine(x, y, -1.7, 0.1, 0.28));
+      m.both(s => m.light(1.12 * s, 0.08, -0.35, 0.05)); m.light(0, 0.08, 1.75, 0.05);
+    },
+    capsule(m) {
+      m.loft(OCT, [{ z: -0.45, w: 0.1, h: 0.1 }, { z: -0.2, w: 0.28, h: 0.28 }, { z: 0.22, w: 0.26, h: 0.26 }, { z: 0.48, w: 0.05, h: 0.05 }], PAL.hull);
+      m.box(0, 0.16, 0.05, 0.1, 0.06, 0.12, PAL.glass, 0.7);
+      m.port(0, 0.2, 0.05, 1); m.engine(0, 0, -0.45, 0.1, 0.12); m.spine(0.08, 0.22, -0.1, 0.18, 0.008);
+    },
+  };
+
   const KIND = { capsule: ['capsule'], sprout: ['shuttle'], jebi: ['scout'], buong: ['scout', true], duduji: ['miner'], gorae: ['miner', true], mae: ['escort'], geobuk: ['hauler'], cheongryong: ['cruiser'], baekho: ['heavy'], hyeonmu: ['battleship'] };
   const cache = {};
   function model(type) {
@@ -358,7 +474,10 @@ vec3 c=vk>0.5?vec3(1.0,0.82,0.55):vec3(0.62,0.78,1.0);gl_FragColor=vec4(c*a,a);}
     const size = opts.size || 52, alpha = opts.alpha == null ? 1 : opts.alpha;
     const lang = opts.lightAng == null ? -0.7 : opts.lightAng;
     const tint = opts.tint || [1, 1, 1];
-    gl.viewport(0, 0, LIVE_S, LIVE_S); gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    const cap = (typeof window !== 'undefined' && window.innerWidth <= 820) ? 384 : 512;
+    const res = Math.max(160, Math.min(cap, Math.round((opts.res || size * 1.35) / 32) * 32));
+    if (L3.cv.width !== res) { L3.cv.width = L3.cv.height = res; }
+    gl.viewport(0, 0, res, res); gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     const fov = mode === 'chase' ? 0.62 : 0.52;
     const dist = (u.R / Math.sin(fov / 2)) * (mode === 'chase' ? 1.12 : 1.22);
     const P = M4.persp(fov, 1, 0.05, 50);
@@ -396,7 +515,7 @@ vec3 c=vk>0.5?vec3(1.0,0.82,0.55):vec3(0.62,0.78,1.0);gl_FragColor=vec4(c*a,a);}
     attrB(L3.P2, 'p', u.gp, 3); attrB(L3.P2, 'r', u.gr, 1); attrB(L3.P2, 'k', u.gk, 1);
     gl.uniformMatrix4fv(gl.getUniformLocation(L3.P2, 'M'), false, L3.uM);
     gl.uniformMatrix4fv(gl.getUniformLocation(L3.P2, 'P'), false, L3.uP);
-    gl.uniform1f(gl.getUniformLocation(L3.P2, 'S'), LIVE_S * 7.5); gl.uniform1f(gl.getUniformLocation(L3.P2, 'T'), opts.t || 0);
+    gl.uniform1f(gl.getUniformLocation(L3.P2, 'S'), res * 7.5); gl.uniform1f(gl.getUniformLocation(L3.P2, 'T'), opts.t || 0);
     gl.drawArrays(gl.POINTS, 0, u.gcount); gl.depthMask(true);
     c.save(); c.translate(x, y); c.globalAlpha = alpha;
     if (mode === 'chase') { /* 이미 뒤시점으로 그림 */ }
@@ -405,11 +524,127 @@ vec3 c=vk>0.5?vec3(1.0,0.82,0.55):vec3(0.62,0.78,1.0);gl_FragColor=vec4(c*a,a);}
     return true;
   }
   // 화면의 자리(host)에 3D 보기를 붙임 — 화면을 다시 그려도 같은 캔버스를 다시 붙여서 WebGL을 새로 만들지 않음
+
+  // ---------- 도킹 연출: 격납고 안으로 들어오는 함선 (고정 카메라, 각도만 회전) ----------
+  const C3 = { ok: null, cv: null, gl: null, bay: null, P1: null, P2: null, buf: {}, uM: new Float32Array(16), uP: new Float32Array(16), uKey: new Float32Array(3), uFill: new Float32Array(3), uRim: new Float32Array(3), uTint: new Float32Array([1, 1, 1]) };
+  function cineInit() {
+    if (C3.ok !== null) return C3.ok;
+    if (typeof document === 'undefined' || (typeof window !== 'undefined' && window.__no3d)) { C3.ok = false; return false; }
+    const cv = C3.cv = document.createElement('canvas'); cv.width = 960; cv.height = 400;
+    let gl = null; try { gl = cv.getContext('webgl', { antialias: true, alpha: false, premultipliedAlpha: false, preserveDrawingBuffer: true }) || cv.getContext('experimental-webgl'); } catch (e) { gl = null; }
+    if (!gl) { C3.ok = false; return false; }
+    try { C3.P1 = prog(gl, VS, FS_LIVE); C3.P2 = prog(gl, GVS, GFS); } catch (e) { C3.ok = false; return false; }
+    C3.gl = gl; C3.ok = true; return true;
+  }
+  function bayMesh() {
+    if (C3.bay) return C3.bay;
+    const m = new Mesh();
+    const wall = hex('#141820'), floor = hex('#15181f'), ceil = hex('#10131a'), stripe = hex('#b8944a'), trim = PAL.hull2, lit = hex('#e8d8a8');
+    // 바닥·천장·옆벽·뒷벽 (문이 있는 앞벽은 문틀만)
+    const slab = (x, y, z, sx, sy, sz, col, em) => { m.emBox(x, y, z, sx, sy, sz, col, em || 0); };
+    slab(0, 0, 0, 11, 0.04, 5.2, floor, 0);           // floor
+    slab(0, 4.4, 0, 11, 0.04, 5.2, ceil, 0);           // ceiling
+    slab(0, 2.2, -5.15, 11, 2.2, 0.08, wall, 0);       // left wall
+    slab(0, 2.2, 5.15, 11, 2.2, 0.08, wall, 0);        // right wall
+    slab(9.2, 2.2, 0, 0.12, 2.2, 5.2, wall, 0);        // back wall
+    // 문틀 (앞, x=-9)
+    slab(-9.0, 2.2, -3.4, 0.16, 2.2, 1.7, trim, 0);
+    slab(-9.0, 2.2, 3.4, 0.16, 2.2, 1.7, trim, 0);
+    slab(-9.0, 3.85, 0, 0.16, 0.5, 5.2, trim, 0);
+    slab(-9.0, 0.2, 0, 0.16, 0.2, 5.2, trim, 0);
+    // 바닥 안내선
+    for (let i = -8; i < 8; i += 2) slab(i, 0.05, 0, 0.08, 0.01, 1.8, stripe, 0.15);
+    slab(0, 0.05, 1.85, 9, 0.01, 0.04, stripe, 0.2);
+    slab(0, 0.05, -1.85, 9, 0.01, 0.04, stripe, 0.2);
+    // 천장 베이 조명
+    for (let i = -7; i <= 6; i += 2.2) { slab(i, 4.25, 0, 0.8, 0.04, 0.12, lit, 0.95); m.light(i, 4.15, 0, 0.35); }
+    for (let i = -6; i <= 6; i += 3) { m.light(i, 3.6, -4.6, 0.22); m.light(i, 3.6, 4.6, 0.22); }
+    // 옆 구조·상자
+    for (let i = -5; i <= 5; i += 5) { slab(i, 1.1, -4.6, 0.3, 1.1, 0.35, PAL.hull2, 0); slab(i, 1.1, 4.6, 0.3, 1.1, 0.35, PAL.hull2, 0); }
+    slab(6.5, 0.45, -3.4, 0.7, 0.45, 0.5, PAL.accent, 0);
+    slab(7.0, 0.35, 3.6, 0.55, 0.35, 0.55, PAL.hull, 0);
+    // 문짝은 따로 움직임
+    const mk = (arr) => { const b = C3.gl.createBuffer(); C3.gl.bindBuffer(C3.gl.ARRAY_BUFFER, b); C3.gl.bufferData(C3.gl.ARRAY_BUFFER, new Float32Array(arr), C3.gl.STATIC_DRAW); return b; };
+    const gp = [], gr = [], gk = []; m.glow.forEach(g => { gp.push(g[0], g[1], g[2]); gr.push(g[3]); gk.push(g[4] ? 1 : 0); });
+    C3.bay = { p: mk(m.p), n: mk(m.n), c: mk(m.c), e: mk(m.e), gp: mk(gp), gr: mk(gr), gk: mk(gk), count: m.p.length / 3, gcount: m.glow.length };
+    // 문짝 두 개
+    const door = (sign) => {
+      const d = new Mesh();
+      d.emBox(0, 0, 0, 0.08, 1.5, 1.55, hex('#3d4450'), 0);
+      d.emBox(0.02, 0, 0, 0.03, 1.35, 1.4, hex('#252a32'), 0);
+      for (let k = -1; k <= 1; k++) d.emBox(0.04, k * 0.7, 0, 0.02, 0.08, 1.35, lit, 0.6);
+      return { p: mk(d.p), n: mk(d.n), c: mk(d.c), e: mk(d.e), count: d.p.length / 3, sign };
+    };
+    C3.doors = [door(-1), door(1)];
+    return C3.bay;
+  }
+  function cineUpload(type) {
+    if (C3.buf[type]) return C3.buf[type];
+    const gl = C3.gl, md = model(type), m = md.m;
+    const mk = (arr) => { const b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(arr), gl.STATIC_DRAW); return b; };
+    const gp = [], gr = [], gk = []; m.glow.forEach(g => { gp.push(g[0], g[1], g[2]); gr.push(g[3]); gk.push(g[4] ? 1 : 0); });
+    return (C3.buf[type] = { p: mk(m.p), n: mk(m.n), c: mk(m.c), e: mk(m.e), gp: mk(gp), gr: mk(gr), gk: mk(gk), count: m.p.length / 3, gcount: m.glow.length, R: md.R });
+  }
+  function drawMesh(gl, buf, M, P, key, fill, rim, tint, t) {
+    const attrB = (p, name, bufb, sizeN) => { const l = gl.getAttribLocation(p, name); if (l < 0) return; gl.bindBuffer(gl.ARRAY_BUFFER, bufb); gl.enableVertexAttribArray(l); gl.vertexAttribPointer(l, sizeN, gl.FLOAT, false, 0, 0); };
+    C3.uM.set(M); C3.uP.set(P); C3.uKey.set(key); C3.uFill.set(fill); C3.uRim.set(rim); C3.uTint.set(tint || [1, 1, 1]);
+    gl.enable(gl.DEPTH_TEST); gl.disable(gl.BLEND); gl.disable(gl.CULL_FACE);
+    gl.useProgram(C3.P1); attrB(C3.P1, 'p', buf.p, 3); attrB(C3.P1, 'n', buf.n, 3); attrB(C3.P1, 'c', buf.c, 3); attrB(C3.P1, 'e', buf.e, 1);
+    gl.uniformMatrix4fv(gl.getUniformLocation(C3.P1, 'M'), false, C3.uM);
+    gl.uniformMatrix4fv(gl.getUniformLocation(C3.P1, 'P'), false, C3.uP);
+    gl.uniform3fv(gl.getUniformLocation(C3.P1, 'uKey'), C3.uKey);
+    gl.uniform3fv(gl.getUniformLocation(C3.P1, 'uFill'), C3.uFill);
+    gl.uniform3fv(gl.getUniformLocation(C3.P1, 'uRim'), C3.uRim);
+    gl.uniform3fv(gl.getUniformLocation(C3.P1, 'uTint'), C3.uTint);
+    gl.drawArrays(gl.TRIANGLES, 0, buf.count);
+    if (buf.gcount) {
+      gl.useProgram(C3.P2); gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE); gl.depthMask(false);
+      attrB(C3.P2, 'p', buf.gp, 3); attrB(C3.P2, 'r', buf.gr, 1); attrB(C3.P2, 'k', buf.gk, 1);
+      gl.uniformMatrix4fv(gl.getUniformLocation(C3.P2, 'M'), false, C3.uM);
+      gl.uniformMatrix4fv(gl.getUniformLocation(C3.P2, 'P'), false, C3.uP);
+      gl.uniform1f(gl.getUniformLocation(C3.P2, 'S'), C3.cv.height * 4.0); gl.uniform1f(gl.getUniformLocation(C3.P2, 'T'), t || 0);
+      gl.drawArrays(gl.POINTS, 0, buf.gcount); gl.depthMask(true); gl.disable(gl.BLEND);
+    }
+  }
+  // t=0..1. 카메라 위치는 고정, 함선 뱃머리를 따라 각도만 살짝 오른쪽으로.
+  function drawDockCine(c, W, H, type, t) {
+    if (!cineInit()) return false;
+    const gl = C3.gl; bayMesh(); const ship = cineUpload(type || 'sprout'); if (!ship) return false;
+    const ease = (x) => { x = Math.max(0, Math.min(1, x)); return x * x * (3 - 2 * x); };
+    const door = ease((t - 0.02) / 0.2);
+    const enter = ease((t - 0.14) / 0.7);
+    const sx = -8.6 + 11.2 * enter, sy = Math.max(0.45, ship.R * 0.28), sz = 0;
+    const scale = 1.2 / Math.max(1.15, ship.R);
+    // 고정 카메라: 입구 안쪽, 항로의 오른쪽 앞
+    const ey = 2.15, eY = 1.42, ez = 3.25;
+    const noseX = sx + 1.15, noseY = sy + 0.1, noseZ = sz;
+    const lookX = -8.2 * (1 - enter) + noseX * enter, lookY = 1.15 * (1 - enter) + noseY * enter, lookZ = 0 * (1 - enter) + noseZ * enter;
+    const Wgl = C3.cv.width, Hgl = C3.cv.height;
+    gl.viewport(0, 0, Wgl, Hgl); gl.clearColor(0.02, 0.025, 0.04, 1); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    const P = M4.persp(0.72, Wgl / Hgl, 0.15, 40);
+    const V = M4.lookAt(ey, eY, ez, lookX, lookY, lookZ, 0, 1, 0);
+    const key = [0.15, 0.85, 0.2], fill = [0.35, 0.15, -0.4], rimc = [0.35, 0.55, 0.85];
+    const ident = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+    const Mbay = M4.mul(V, ident);
+    drawMesh(gl, C3.bay, Mbay, P, key, fill, rimc, [1, 1, 1], t * 5);
+    // 문짝: 좌우로 열림
+    C3.doors.forEach(d => {
+      const open = door * 2.6;
+      const Md = M4.mul(V, M4.tr(-9.0, 1.7, d.sign * (1.55 + open)));
+      drawMesh(gl, d, Md, P, key, fill, rimc, [1, 1, 1], t);
+    });
+    // 함선: 뱃머리(+Z)가 +X(진행 방향)
+    const Ms = M4.mul(V, M4.mul(M4.tr(sx, sy, sz), M4.mul(M4.sc(scale), M4.ry(-Math.PI / 2))));
+    drawMesh(gl, ship, Ms, P, [0.45, 0.55, 0.55], [-0.2, 0.25, -0.4], [0.4, 0.65, 0.95], [1, 1, 1], t * 8);
+    c.drawImage(C3.cv, 0, 0, W, H);
+    return true;
+  }
+
   G.Ship3D = {
     mount(host, type) { if (!host) return; initGL(); if (V.cv.parentNode !== host) host.appendChild(V.cv);
       if (type !== V.type) { V.type = type; if (V.ok) upload(type); V.zoom = 1; }
       host.classList.toggle('flat', !V.ok); if (!V.raf) { V.last = 0; V.raf = requestAnimationFrame(draw); } },
     info: () => ({ ok: V.ok, type: V.type, frames: V.frames, yaw: V.yaw, pitch: V.pitch, zoom: V.zoom, tris: V.type ? model(V.type).tris : 0, mounted: !!(V.cv && V.cv.isConnected) }),
-    model, KIND, drawSprite, spriteSheet, enhanceFrame, drawLive, liveOk: () => liveInit(), BAKE_N, LIVE_S,
+    model, KIND, drawSprite, spriteSheet, enhanceFrame, drawLive, liveOk: () => liveInit(), drawDockCine, cineOk: () => cineInit(), BAKE_N, LIVE_S,
   };
 })(typeof window !== 'undefined' ? window.G : globalThis.G);

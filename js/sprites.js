@@ -17,8 +17,8 @@
     if (kind === 'raven') return s >= 1.4 ? 'raven-large' : 'raven-small';
     return s >= 1.4 ? 'void-large' : 'void-small';
   };
-  // v13: 어두운 금속 선체 + 얇은 림·작은 엔진 불빛. 휴대폰에서만 아주 작은 최소 크기.
-  const MIN_L = { player: 32 };
+  // v15: 기본 배율(1/60)에서 예전 크기. 줌에 따라 실사이즈로 커지거나, 축소 때는 작은 최소 크기만 남김.
+  const MIN_L = { player: 10, npc: 6 };
   const AURA = {
     player: { rim: '132,148,172', eng: '120,165,230' },
     navy: { rim: '120,150,180', eng: '100,150,220' },
@@ -26,10 +26,13 @@
     void: { rim: '90,150,120', eng: '50,200,140' },
   };
   function shipL(s, kind, hull) {
-    const base = 52 * s * (kind === 'player' ? (HULL_LEN[hull] || 1) : 1);
+    const zS = Art.zoomS == null ? 1 : Art.zoomS;
+    const base = 52 * s * (kind === 'player' ? (HULL_LEN[hull] || 1) : 1) * zS;
     const mob = typeof window !== 'undefined' && window.innerWidth <= 820;
-    return Math.max(base, (kind === 'player' && mob) ? (MIN_L.player || 32) : 0);
+    const floor = kind === 'player' ? (mob ? MIN_L.player : 8) : MIN_L.npc;
+    return Math.max(base, floor);
   }
+  Art.shipL = shipL;
   function drawEngine(c, L, kind, t) {
     const col = AURA[kind] || AURA.player;
     const flick = 0.8 + 0.2 * Math.sin((t || 0) * 6.5);
