@@ -640,6 +640,12 @@
     const warping = SP.warp && SP.warp.phase === 'warp';
     // v10: 워프 연출 — 배가 먼저 목적지 쪽으로 몸을 틀고(정렬), 카메라가 배 뒤로 돌아가 따라감(진행 방향이 화면 위쪽)
     const CW = camWarp(fdt, W, H, cx, cy, mob); const k = CW.k, rot = CW.rot, pcx = CW.x, pcy = CW.y;
+    // v13: 워프 줄기가 모이는 소실점 쪽으로 함선이 작아지며 빨려 들어감. 해제되면 제자리·크기로 돌아옴.
+    const pWarp = warping ? SP.warp.t / SP.warp.dur : 0;
+    const pull = warping ? G.warpSpeed(pWarp) : (SP.arrFx > 0 ? G.clamp(SP.arrFx, 0, 1) * k : 0);
+    const vpY = warping ? CW.vy : (CW.vy + (pcy - CW.vy) * (1 - k));
+    const shipX = pcx, shipY = pcy + (vpY - pcy) * pull * 0.72;
+    const C = UI.cam; if (C) { C.pull = pull; C.shipX = shipX; C.shipY = shipY; C.homeY = pcy; C.vpY = vpY; }
     const dk = SP.docking ? G.clamp(SP.docking.t / SP.docking.dur, 0, 1) : 0; const uk = SP.undocking ? G.clamp(SP.undocking.t / SP.undocking.dur, 0, 1) : 1;
     const z = UI.zoom * (1 + (dk * dk * (3 - 2 * dk)) * 2.4 + (1 - uk) * 1.8);
     // 별 배경
@@ -682,7 +688,7 @@
     if (warping) {
       c.restore(); const p = SP.warp.t / SP.warp.dur; const v = 0.15 + 0.85 * G.warpSpeed(p);
       drawTunnel(c, W, H, pcx, CW.vy, v, 1, fdt);
-      chaseShip(c, pcx, pcy, 1, 1.45 + 0.08 * v, T, v);
+      chaseShip(c, shipX, shipY, 1, (1.45 + 0.08 * v) * (1 - 0.34 * pull), T, v);
       cv._hit = () => null; cv._toWorld = null;
       return;
     }
@@ -737,7 +743,7 @@
     const a = CW.head;
     const sc = (G.activeShip(S) ? 1.15 : 0.5) * (1 - dk * 0.8) * (0.25 + 0.75 * uk);
     if (SP.arrFx > 0) drawTunnel(c, W, H, pcx, CW.vy + (pcy - CW.vy) * (1 - k), 0.15 * SP.arrFx, SP.arrFx, fdt);
-    if (G.activeShip(S) && k > 0.001) chaseShip(c, pcx, pcy, k, sc * (1 + 0.26 * k), T, CW.thrust, a + rot);
+    if (G.activeShip(S) && k > 0.001) chaseShip(c, shipX, shipY, k, sc * (1 + 0.26 * k) * (1 - 0.34 * pull), T, CW.thrust, a + rot);
     else if (G.activeShip(S)) G.Art.drawShip(c, cx, cy, a, sc, 'player', T, 1 - Math.max(0, dk - 0.75) * 3);
     else { c.fillStyle = '#e8c9a0'; c.beginPath(); c.ellipse(cx, cy, 5, 3, a, 0, 7); c.fill(); }
     if (Math.hypot(pl.vx, pl.vy) > 40 && !SP.docking && k < 0.05) { c.strokeStyle = 'rgba(127,184,255,0.35)'; c.lineWidth = 2; c.beginPath(); c.moveTo(cx - Math.cos(a) * 24 * sc, cy - Math.sin(a) * 24 * sc); c.lineTo(cx - Math.cos(a) * 44 * sc, cy - Math.sin(a) * 44 * sc); c.stroke(); }

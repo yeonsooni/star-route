@@ -17,36 +17,27 @@
     if (kind === 'raven') return s >= 1.4 ? 'raven-large' : 'raven-small';
     return s >= 1.4 ? 'void-large' : 'void-small';
   };
-  // v12: 어두운 성운 배경에서도 함선이 보이게 — 후광·림·엔진 불빛, 최소 크기. 세력마다 강조색만 다름.
-  const MIN_L = { player: 48, navy: 36, raven: 34, void: 34 };
+  // v13: 어두운 금속 선체 + 얇은 림·작은 엔진 불빛. 휴대폰에서만 아주 작은 최소 크기.
+  const MIN_L = { player: 32 };
   const AURA = {
-    player: { halo: '210,224,242', rim: '226,234,245', eng: '155,198,255' },
-    navy: { halo: '150,188,230', rim: '176,208,236', eng: '120,176,255' },
-    raven: { halo: '214,176,120', rim: '230,200,150', eng: '255,152,80' },
-    void: { halo: '130,214,176', rim: '150,230,196', eng: '70,255,170' },
+    player: { rim: '132,148,172', eng: '120,165,230' },
+    navy: { rim: '120,150,180', eng: '100,150,220' },
+    raven: { rim: '160,130,95', eng: '200,120,70' },
+    void: { rim: '90,150,120', eng: '50,200,140' },
   };
   function shipL(s, kind, hull) {
     const base = 52 * s * (kind === 'player' ? (HULL_LEN[hull] || 1) : 1);
-    return Math.max(base, MIN_L[kind] || 32);
-  }
-  function drawHalo(c, L, kind, t) {
-    const col = AURA[kind] || AURA.player;
-    const pulse = 0.88 + 0.12 * Math.sin((t || 0) * 2.6);
-    const R = L * 0.55;
-    const g = c.createRadialGradient(0, 0, L * 0.08, 0, 0, R);
-    g.addColorStop(0, `rgba(${col.halo},${0.32 * pulse})`);
-    g.addColorStop(0.4, `rgba(${col.halo},${0.12 * pulse})`);
-    g.addColorStop(1, 'rgba(0,0,0,0)');
-    c.fillStyle = g; c.beginPath(); c.arc(0, 0, R, 0, 7); c.fill();
+    const mob = typeof window !== 'undefined' && window.innerWidth <= 820;
+    return Math.max(base, (kind === 'player' && mob) ? (MIN_L.player || 32) : 0);
   }
   function drawEngine(c, L, kind, t) {
     const col = AURA[kind] || AURA.player;
-    const flick = 0.72 + 0.28 * Math.sin((t || 0) * 6.5);
-    const ex = -L * 0.28, R = L * (kind === 'player' ? 0.22 : 0.17);
+    const flick = 0.8 + 0.2 * Math.sin((t || 0) * 6.5);
+    const ex = -L * 0.26, R = L * 0.10;
     c.save(); c.globalCompositeOperation = 'lighter';
     const g = c.createRadialGradient(ex, 0, 0, ex, 0, R);
-    g.addColorStop(0, `rgba(255,255,255,${0.65 * flick})`);
-    g.addColorStop(0.22, `rgba(${col.eng},${0.85 * flick})`);
+    g.addColorStop(0, `rgba(220,230,255,${0.45 * flick})`);
+    g.addColorStop(0.35, `rgba(${col.eng},${0.4 * flick})`);
     g.addColorStop(1, 'rgba(0,0,0,0)');
     c.fillStyle = g; c.beginPath(); c.arc(ex, 0, R, 0, 7); c.fill();
     c.restore();
@@ -59,25 +50,25 @@
     const w = im.naturalWidth || im.width, h = im.naturalHeight || im.height;
     const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
     const x = cv.getContext('2d'); x.drawImage(im, 0, 0, w, h);
-    const lift = kind === 'void' ? 0.32 : kind === 'navy' ? 0.16 : kind === 'raven' ? 0.12 : 0.05;
+    const lift = kind === 'void' ? 0.08 : kind === 'navy' ? 0.04 : kind === 'raven' ? 0.03 : 0;
     const img = x.getImageData(0, 0, w, h), d = img.data, A = new Uint8ClampedArray(w * h);
     for (let i = 0, p = 0; i < d.length; i += 4, p++) {
       A[p] = d[i + 3];
-      if (d[i + 3] < 8) continue;
-      d[i] = d[i] + (235 - d[i]) * lift;
-      d[i + 1] = d[i + 1] + (232 - d[i + 1]) * lift;
-      d[i + 2] = d[i + 2] + (238 - d[i + 2]) * lift;
+      if (d[i + 3] < 8 || !lift) continue;
+      d[i] = d[i] + (200 - d[i]) * lift;
+      d[i + 1] = d[i + 1] + (200 - d[i + 1]) * lift;
+      d[i + 2] = d[i + 2] + (210 - d[i + 2]) * lift;
     }
-    const rgb = (AURA[kind] || AURA.player).rim.split(',').map(Number), rad = 2;
+    const rgb = (AURA[kind] || AURA.player).rim.split(',').map(Number);
     for (let y = 0; y < h; y++) for (let xx = 0; xx < w; xx++) {
       const p = y * w + xx;
       if (A[p] > 70) continue;
       let near = 0;
-      for (let dy = -rad; dy <= rad; dy++) for (let dx = -rad; dx <= rad; dx++) {
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
         const x2 = xx + dx, y2 = y + dy; if (x2 < 0 || y2 < 0 || x2 >= w || y2 >= h) continue;
-        if (A[y2 * w + x2] > 70) { const dist = Math.hypot(dx, dy); if (dist <= rad) near = Math.max(near, (1 - dist / (rad + 0.4)) * A[y2 * w + x2]); }
+        if (A[y2 * w + x2] > 70) { const dist = Math.hypot(dx, dy); if (dist <= 1.05) near = Math.max(near, (1 - dist / 1.4) * A[y2 * w + x2]); }
       }
-      if (near > 12) { const o = p * 4; d[o] = rgb[0]; d[o + 1] = rgb[1]; d[o + 2] = rgb[2]; d[o + 3] = Math.min(255, Math.max(d[o + 3], near * 0.8)); }
+      if (near > 20) { const o = p * 4; d[o] = rgb[0]; d[o + 1] = rgb[1]; d[o + 2] = rgb[2]; d[o + 3] = Math.min(255, Math.max(d[o + 3], near * 0.4)); }
     }
     x.putImageData(img, 0, 0); return (litCache[key] = cv);
   }
@@ -85,7 +76,6 @@
     hull = hull || (kind === 'player' ? Art.hull : null);
     const L = shipL(s, kind, hull);
     c.save(); c.translate(x, y); c.globalAlpha = alpha == null ? 1 : alpha;
-    drawHalo(c, L, kind, t);
     c.rotate(a); drawEngine(c, L, kind, t); c.rotate(-a);
     // 내 함선·같은 함급은 정비고 3D 모델을 위에서 본 스프라이트로. L은 이미 함급 길이를 반영.
     if (hull && G.Ship3D && G.Ship3D.KIND[hull] && G.Ship3D.drawSprite && G.Ship3D.drawSprite(c, 0, 0, a, L / 52, hull, 1)) { c.restore(); return; }
@@ -93,10 +83,7 @@
     if (!im0) { old.ship(c, 0, 0, a, s, kind, t, 1); c.restore(); return; }
     const im = litSprite(im0, kind);
     const H = L * im.height / im.width;
-    const col = AURA[kind] || AURA.player;
     c.rotate(a);
-    c.save(); c.shadowColor = `rgba(${col.rim},0.95)`; c.shadowBlur = Math.max(3.5, L * 0.07);
-    c.drawImage(im, -L / 2, -H / 2, L, H); c.restore();
     c.drawImage(im, -L / 2, -H / 2, L, H);
     c.restore();
   };
