@@ -1,6 +1,6 @@
 // 성간 개척 일지 — 오프라인 저장소 (인터넷 주소로 열었을 때만 쓰여요)
 // 파일을 바꾸면 VERSION 숫자를 올려 주세요. 그래야 새 파일로 바뀝니다.
-const VERSION = 'sgl-v9-1';
+const VERSION = 'sgl-v10-3';
 const FILES = [
   './',
   'index.html',
@@ -8,8 +8,10 @@ const FILES = [
   'manifest.webmanifest',
   'js/art.js',
   'js/core.js',
+  'js/courses.js',
   'js/data.js',
   'js/space.js',
+  'js/ship3d.js',
   'js/sprites.js',
   'js/ui.js',
   'img/bg-agents.jpg',

@@ -584,3 +584,44 @@ html{-webkit-text-size-adjust:100%}
   #tutCard.mini .crewbox::after{content:"▾";position:absolute;right:9px;top:50%;transform:translateY(-50%);color:var(--dim);font-size:12px}
   #tutCard.mini .crewbox .pt,#tutCard.mini .crewbox .pt svg{width:30px;height:36px}
 }
+/* ===================== v10: 교육 과정 · 힌트 · 아래 칸 끌기 ===================== */
+#tutCard .hint{margin-top:6px;padding:6px 8px;border-radius:8px;background:rgba(255,198,138,.08);border-left:3px solid var(--o);font-size:13px;line-height:1.5;color:var(--peach)}
+#tutCard .hint b{color:var(--o);margin-right:4px}
+#tutHi.soft{border-style:dashed;animation:none;box-shadow:0 0 0 3px rgba(255,176,0,.18)}
+#tutNextBtn.pulse{animation:tutPulse 1.6s ease-in-out infinite}
+@keyframes tutPulse{0%,100%{box-shadow:0 0 0 0 rgba(255,176,0,.0)}50%{box-shadow:0 0 0 6px rgba(255,176,0,.28)}}
+.courses{display:grid;gap:8px}
+.courses .crs{display:flex;align-items:center;gap:10px;padding:10px;border-radius:10px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07)}
+.courses .crs .ic{width:34px;height:34px;flex:none;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:17px;background:rgba(255,198,138,.08)}
+.courses .crs .bd{flex:1;min-width:0}
+.courses .crs .bd b{display:block}
+.courses .crs .bd span{font-size:12px;color:var(--sub);line-height:1.45}
+.courses .crs.done .ic{background:rgba(127,200,140,.14)}
+.courses .crs .ok{color:var(--good,#8fd18a);font-size:12px;margin-left:6px}
+.courses .crs button{flex:none;min-height:40px}
+@media (max-width: 820px) {
+  #space.ovfull{--sheetH:80dvh}
+  #space.ovfull #hud,#space.ovfull #mobtools,#space.ovfull #targets{display:none}
+  #space.sheetdrag #overview,#space.sheetdrag #hud,#space.sheetdrag #mobtools,#space.sheetdrag #targets,#space.sheetdrag #crew{transition:none!important}
+  #overview .sheetbar,#overview .ovsum{touch-action:none;-webkit-user-select:none;user-select:none}
+  #overview .sheetbar{height:30px}
+  #space.ovmin #overview::before{content:"";position:absolute;top:4px;left:50%;width:38px;height:4px;margin-left:-19px;border-radius:2px;background:rgba(255,255,255,.26);pointer-events:none}
+}
+/* v10: 함선 정비고 3D 보기 (컴퓨터·휴대폰 공통) */
+.yard3d{position:relative;height:340px;padding:0!important;overflow:hidden;border-radius:12px;background:radial-gradient(ellipse 60% 70% at 50% -10%,rgba(255,214,170,.20),transparent 70%),radial-gradient(ellipse 50% 18% at 50% 88%,rgba(140,170,220,.16),transparent 70%),linear-gradient(180deg,rgba(8,8,12,.35),rgba(8,8,12,.85)),url("img/space/sbg-bluenebula.webp") center/cover,#07080b}
+.yard3d::before{content:"";position:absolute;inset:0;pointer-events:none;background:linear-gradient(100deg,transparent 30%,rgba(255,230,200,.05) 42%,transparent 50%),linear-gradient(80deg,transparent 52%,rgba(200,220,255,.045) 60%,transparent 68%)}
+.yard3d::after{content:"";position:absolute;left:12%;right:12%;bottom:22px;height:1px;pointer-events:none;background:linear-gradient(90deg,transparent,rgba(255,198,138,.35),transparent);box-shadow:0 0 18px 2px rgba(255,198,138,.12)}
+.yard3d .ship3d{position:absolute;inset:0;z-index:1}
+.ship3dcv{width:100%;height:100%;display:block;cursor:grab;touch-action:none}
+.ship3dcv:active{cursor:grabbing}
+.yard3d .yov{position:absolute;left:14px;top:12px;z-index:2;pointer-events:none;text-shadow:0 1px 6px #000}
+.yard3d .yov .nm{font-size:20px;font-weight:700;color:var(--peach)}
+.yard3d .yhint{position:absolute;right:12px;bottom:8px;z-index:2;pointer-events:none;color:var(--sub);opacity:.8}
+.ytabs{margin:12px 0}
+.yslot{display:flex;flex-wrap:wrap;gap:4px;align-items:center;padding:5px 0;border-bottom:1px solid rgba(255,255,255,.05)}
+.yslot>span:first-child{width:72px}
+@media (max-width: 820px), (max-height: 500px) and (pointer: coarse) {
+  .yard3d{height:min(46vh,300px)}
+  .yard3d .yov .nm{font-size:17px}
+}
+@media (max-width: 820px){#tutCard.mini #tutNextBtn{padding:5px 14px;font-size:14px;min-height:32px}#tutCard.mini .tb{justify-content:flex-start}}

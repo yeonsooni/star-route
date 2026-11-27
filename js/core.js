@@ -29,7 +29,7 @@
       mk: {}, mkEvents: [], mkLast: t, orders: [],
       jobs: [], missions: { offers: {}, active: [] }, sites: {}, visited: {},
       log: [], stats: { kills: 0, mined: 0, missions: 0, lost: 0, sites: 0, sold: 0 },
-      tut: { step: 0, done: false, entered: -1 }, unlocked: {}, settings: { sound: true }, visited: {},
+      tut: { step: 0, done: false, entered: -1 }, courses: {}, course: null, unlocked: {}, settings: { sound: true }, visited: {},
       dest: null,
     };
     Object.keys(G.START_SKILLS).forEach(k => s.books[k] = true);
@@ -700,7 +700,7 @@
   // ---- v2: 기능 잠금 해제 ----
   G.FEATURES = {
     market: { name: '교역소', desc: '물건을 사고팔 수 있어요. 지역마다 값이 달라요.' },
-    hangar: { name: '격납고', desc: '맡겨 둔 물건과 함선을 볼 수 있어요.' },
+    hangar: { name: '함선 정비고', desc: '내 함선을 3D로 보고 수리·튜닝하고, 보관함과 새 함선 구매도 여기서 해요.' },
     agents: { name: '임무 본부', desc: '임무를 받아 돈과 평판을 얻어요.' },
     fitting: { name: '장착', desc: '함선에 장비를 달고 뗄 수 있어요.' },
     skills: { name: '스킬', desc: '스킬을 훈련하면 더 좋은 함선과 장비를 쓸 수 있어요.' },
@@ -728,6 +728,7 @@
     if (!s.unlocked) { s.unlocked = {}; G.unlockAll(s, true); }
     if (!s.tut) s.tut = { step: G.TUT.length, done: true, entered: G.TUT.length };
     if (s.stats && s.stats.sold == null) s.stats.sold = 0;
+    if (!s.courses) s.courses = {}; if (s.course === undefined) s.course = null;
     return s;
   };
 
@@ -737,7 +738,9 @@
   G.TUT_FILL = 150;
   G.TUT = [
     { id: 'intro', manual: true },
+    { id: 'screen', manual: true },
     { id: 'undock', check: (s) => !s.loc.docked },
+    { id: 'space', manual: true },
     { id: 'warpBelt', check: (s, sp) => !!(sp && sp.cel && sp.cel.startsWith('bl:') && !sp.warp) },
     { id: 'mine', check: (s, sp) => mineOn(sp) || oreInCargo(s) > 0 },
     { id: 'fill', check: (s) => oreInCargo(s) >= G.TUT_FILL || (G.activeShip(s) && G.cargoFree(s, G.activeShip(s)) < 1) },
@@ -765,10 +768,10 @@
     s.tut.step++; G.tutEnter(s); return true;
   };
   G.tutFinish = (s, reward) => {
-    s.tut.done = true; s.tut.step = G.TUT.length;
+    s.tut.done = true; s.tut.step = G.TUT.length; s.tut.skipped = false;
     if (reward) { s.credits += 50000; G.log(s, '튜토리얼 완료! 보상 50,000 LM', 'good'); }
     ['market', 'agents', 'fitting', 'hangar', 'skills', 'map', 'log'].forEach(f => G.unlockFeature(s, f));
   };
-  G.tutSkip = (s) => { s.tut.done = true; s.tut.step = G.TUT.length; G.unlockAll(s, true); G.log(s, '튜토리얼을 건너뛰었어요. 모든 기능이 열렸어요.'); };
+  G.tutSkip = (s) => { s.tut.done = true; s.tut.skipped = true; s.tut.step = G.TUT.length; G.unlockAll(s, true); G.log(s, '튜토리얼을 건너뛰었어요. 모든 기능이 열렸어요.'); };
   G.tutRestart = (s) => { s.tut = { step: 0, done: false, entered: -1 }; };
 })(typeof window !== 'undefined' ? (window.G = window.G || {}) : (globalThis.G = globalThis.G || {}));

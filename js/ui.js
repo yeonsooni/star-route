@@ -43,7 +43,7 @@
   }
 
   // ---- 정박 화면 ----
-  const PAGES = [['station', '기지'], ['market', '교역소'], ['hangar', '격납고'], ['fitting', '장착'], ['industry', '산업'], ['agents', '임무 본부'], ['skills', '스킬'], ['map', '항성도'], ['log', '항해일지'], ['settings', '설정']];
+  const PAGES = [['station', '기지'], ['market', '교역소'], ['hangar', '함선 정비고'], ['fitting', '장착'], ['industry', '산업'], ['agents', '임무 본부'], ['skills', '스킬'], ['map', '항성도'], ['log', '항해일지'], ['settings', '설정']];
   const PCODE = { station: '10-31', market: '22-07', hangar: '23-64', fitting: '31-88', industry: '44-12', agents: '51-40', skills: '62-19', map: '70-05', log: '81-33', settings: '99-02' };
   function renderSide() {
     if (!G.isUnlocked(S, UI.page)) UI.page = 'station';
@@ -58,6 +58,7 @@
     if (focus && document.getElementById(focus)) { const el = document.getElementById(focus); el.focus(); if (el.setSelectionRange && el.type === 'text') el.setSelectionRange(el.value.length, el.value.length); }
     if (UI.page === 'map') drawMap($('#mapcv'));
     if (UI.page === 'station') drawStView();
+    const y3 = $('#main .ship3d'); if (y3 && G.Ship3D) G.Ship3D.mount(y3, y3.dataset.ship);
     setBgArt(UI.page);
   }
   // 화면마다 배경 일러스트를 천천히 바꿔 끼움(두 장을 번갈아 씀)
@@ -198,14 +199,61 @@
   }
 
   // ---- 격납고 ----
+  // ---- v10: 함선 정비고 (격납고 확장) — 3D 보기 + 상태 · 튜닝 · 보관함 · 함선 구매 ----
   function pHangar() {
+    const st = S.loc.station; const sh = G.activeShip(S); const tab = UI.yardTab || 'status';
+    const view = tab === 'buy' && UI.yardBuy && G.ships[UI.yardBuy] ? { type: UI.yardBuy, name: G.ships[UI.yardBuy].name, tag: '구매 후보 미리보기' }
+      : UI.yardView && S.ships[UI.yardView] && S.ships[UI.yardView].station === st && UI.yardView !== S.active ? { type: S.ships[UI.yardView].type, name: S.ships[UI.yardView].name, tag: '보관 중인 함선' }
+      : sh ? { type: sh.type, name: sh.name, tag: '탑승 중' } : { type: 'capsule', name: '탈출 포드', tag: '함선 없음' };
+    const T = G.ships[view.type];
+    const tabs = [['status', '상태'], ['tune', '튜닝'], ['store', '보관함'], ['buy', '함선 구매']];
+    let body = '';
+    if (tab === 'tune') body = sh ? pFitting().replace(/^\s*<h2>[\s\S]*?<\/h2>/, '') : '<div class="card">탑승한 함선이 없습니다. [상태] 탭에서 함선에 탑승해 주세요.</div>';
+    else if (tab === 'store') body = hangarStore();
+    else if (tab === 'buy') body = yardBuy();
+    else body = yardStatus();
+    return `<h2>함선 정비고 — ${esc(G.stations[st].name)}</h2>
+    <div class="card yard3d" data-code="DRY"><div class="ship3d" data-ship="${view.type}"></div>
+      <div class="yov"><div class="sub small">${esc(view.tag)}</div><div class="nm">${esc(view.name)}</div><div class="small sub">${T.cls} · 슬롯 ${T.slots.join('/')}</div></div>
+      <div class="yhint small">${MOB() ? '끌어서 돌리기 · 두 손가락으로 확대' : '끌어서 돌리기 · 휠로 확대'}</div></div>
+    <div class="tabs ytabs">${tabs.map(([k, n]) => `<button class="${tab === k ? 'on' : ''}" data-a="yardTab" data-t="${k}">${n}</button>`).join('')}</div>
+    <div class="yardbody">${body}</div>`;
+  }
+  function yardStatus() {
+    const st = S.loc.station; const sh = G.activeShip(S); const ships = Object.values(S.ships).filter(x => x.station === st || x.id === S.active);
+    if (!sh) return `<div class="card">탑승한 함선이 없습니다.</div>${yardShips(ships)}`;
+    const x = G.shipStats(S, sh); const rc = G.repairCost(S, sh); const T = G.ships[sh.type];
+    const slots = ['high', 'mid', 'low', 'rig'].map((k, i) => `<div class="yslot"><span class="sub small">${G.slotName[k]} ${sh.fit[k].filter(Boolean).length}/${T.slots[i]}</span>${sh.fit[k].map(id => `<span class="tag ${id ? '' : 'dim'}">${id ? esc(G.modules[id].name) : '빈 칸'}</span>`).join(' ')}</div>`).join('');
+    return `<div class="grid2"><div class="card ystat"><h3>상태 — ${esc(sh.name)}</h3>${hpBlock(S, sh)}
+        <div class="kv" style="margin-top:10px"><span>최고 속도</span><span>${G.fmt(x.speed)} m/s</span><span>워프 정렬</span><span>${x.align.toFixed(1)}초</span><span>화물칸</span><span>${G.fmt(G.cargoUsed(sh))} / ${G.fmt(x.cargo)}㎥</span>
+          <span>조준 거리</span><span>${(x.lock / 1000).toFixed(1)}km · 최대 ${x.maxT}개</span><span>CPU</span><span>${x.cpuUsed.toFixed(0)} / ${x.cpu.toFixed(0)}</span><span>동력망</span><span>${G.fmt(x.pgUsed)} / ${G.fmt(x.pg)}</span></div>
+        <div class="row" style="margin-top:12px">${rc > 0 ? `<button class="pri" data-a="repair">수리하기 (${G.fmtCR(rc)})</button>` : '<span class="good small">손상 없음 — 수리 필요 없음</span>'}<button data-a="yardTab" data-t="tune">튜닝하러 가기 ›</button>${sh.ins ? '<span class="tag">보험 가입</span>' : `<button class="sm" data-a="insure" data-id="${sh.id}">보험 가입</button>`}</div></div>
+      <div><div class="card"><h3>장착 슬롯</h3>${slots}</div>${yardShips(ships)}</div></div>`;
+  }
+  function yardShips(ships) {
+    return `<div class="card"><h3>이 기지의 내 함선</h3><table>${ships.map(x => { const T = G.ships[x.type]; const ok = G.reqMet(S, T.req); return `<tr><td><b>${esc(x.name)}</b> <span class="tag">${T.cls}</span>${x.id === S.active ? ' <span class="good small">탑승 중</span>' : ''}</td>
+      <td class="r">${x.id === S.active ? '' : `<button class="sm" data-a="yardView" data-id="${x.id}">보기</button> <button class="sm" data-a="board" data-id="${x.id}" ${ok ? '' : 'disabled'}>탑승</button>`}</td></tr>`; }).join('') || '<tr><td class="sub">함선이 없습니다.</td></tr>'}</table>
+      <div class="small dim" style="margin-top:6px">새 함선은 [함선 구매] 탭에서 미리 보고 살 수 있습니다.</div></div>`;
+  }
+  function yardBuy() {
+    const st = S.loc.station; const list = Object.values(G.items).filter(it => it.cat === 'ship' && G.tradable(it.id)).sort((a, b) => a.price - b.price);
+    const sel = UI.yardBuy ? list.find(it => it.ship === UI.yardBuy) : null;
+    const rows = list.map(it => { const T = G.ships[it.ship]; const p = G.priceInfo(S, st, it.id); const ok = G.reqMet(S, T.req);
+      return `<tr class="click ${UI.yardBuy === it.ship ? 'sel' : ''}" data-a="yardPick" data-id="${it.ship}"><td>${esc(it.name)}<div class="small sub">${T.cls}</div></td><td class="r">${G.fmtCR(p.ask)}</td><td class="r small ${ok ? 'good' : 'bad'}">${ok ? '탑승 가능' : '스킬 부족'}</td></tr>`; }).join('');
+    let det = `<div class="card sub">${MOB() ? '위' : '왼쪽'} 목록에서 함선을 누르면 3D로 미리 볼 수 있습니다.</div>`;
+    if (sel) { const p = G.priceInfo(S, st, sel.id); const T = G.ships[sel.ship];
+      det = `<div class="card"><div class="between"><h3 style="margin:0">${esc(sel.name)}</h3><span class="tag">${T.cls}</span></div><div class="small sub" style="margin:8px 0;line-height:1.6">${itemDesc(sel)}</div>
+        <div class="kv"><span>값</span><span><b>${G.fmtCR(p.ask)}</b> (기지 재고 ${G.fmt(p.stock)})</span><span>내 자금</span><span>${G.fmtCR(S.credits)}</span></div>
+        <div class="row" style="margin-top:10px"><button class="pri" data-a="yardBuyBtn" data-id="${sel.id}" ${p.stock > 0 && S.credits >= p.ask ? '' : 'disabled'}>구매</button><button data-a="yardMarket" data-id="${sel.id}">교역소에서 보기</button></div></div>`; }
+    return `<div class="grid2"><div class="card"><h3>함선 상점</h3><table>${rows}</table></div><div>${det}</div></div>`;
+  }
+  function hangarStore() {
     const st = S.loc.station; const h = G.hangar(S, st); const sh = G.activeShip(S);
     const ships = Object.values(S.ships).filter(x => x.station === st);
     const elsewhere = {}; Object.entries(S.hangars).forEach(([k, v]) => { if (k !== st && Object.keys(v).length) elsewhere[k] = 1; });
     Object.values(S.ships).forEach(x => { if (x.station && x.station !== st) elsewhere[x.station] = 1; });
     const val = (id, q) => G.tradable(id) ? G.priceInfo(S, st, id).bid * q : 0;
-    return `<h2>격납고 — ${G.stations[st].name}</h2>
-    <div class="grid2">
+    return `<div class="grid2">
       <div class="card"><div class="between"><h3>격납고 물품</h3><span class="small sub">${Object.keys(h).length}종</span></div>
         <table><tr><th>물품</th><th class="r">수량</th><th class="r">시세</th><th></th></tr>
         ${Object.entries(h).sort((a, b) => val(b[0], b[1]) - val(a[0], a[1])).map(([id, q]) => `<tr><td>${esc(G.items[id].name)} <span class="tag">${G.catNames[G.items[id].cat]}</span></td><td class="r">${G.fmt(q)}</td><td class="r small sub">${G.fmtCR(val(id, q))}</td>
@@ -404,6 +452,16 @@
     anyCode(v).then(s => { if (confirm(restoreAsk(s))) { adopt(s); toast('이어하기 링크로 불러왔어요. 이어서 하세요!'); } else toast('불러오지 않았어요'); }, e => toast('이어하기 링크가 올바르지 않아요: ' + e.message, true)); }
   window.addEventListener('hashchange', checkHashLoad);
   function syncMob() { const sp = $('#space'); const mv = $('#mobMove'); if (mv) mv.classList.toggle('pri', !!UI.moveMode); const hb = $('#mobHud'); if (hb) hb.textContent = sp.classList.contains('hudmin') ? '조작판' : '접기'; }
+  // v10: 교육 과정 목록 (완료 표시 · 골라서 시작)
+  function courseListHtml() {
+    const busyBasic = S.tut && !S.tut.done; const act = G.courseActive(S); const nDone = G.COURSES.filter(c => G.courseDone(S, c.id)).length;
+    return `<div class="card" id="courseList" style="margin-top:14px"><div class="between"><h3 style="margin:0">교육 과정</h3><span class="small sub">완료 ${nDone} / ${G.COURSES.length}</span></div>
+      <div class="sub small" style="margin:6px 0 10px;line-height:1.6">활동별로 부함장 Evan이 단계마다 안내합니다. 처음 해 보는 활동이면 자동으로 시작되며, 여기서 언제든 다시 보실 수 있습니다. 과정마다 처음 마치면 ${G.fmtCR(G.COURSE_REWARD)}를 드립니다(기본 과정은 50,000 LM).</div>
+      <div class="courses">${G.COURSES.map(c => { const dn = G.courseDone(S, c.id); const on = act === c.id || (c.id === 'basic' && busyBasic); const dis = !on && (busyBasic || (act && act !== c.id));
+        return `<div class="crs ${dn ? 'done' : ''}" data-course="${c.id}"><div class="ic">${c.icon}</div><div class="bd"><b>${esc(c.name)}${dn ? '<span class="ok">✓ 완료</span>' : ''}${on ? '<span class="ok" style="color:var(--o)">진행 중</span>' : ''}</b><span>${esc(c.desc)} · ${G.courseSteps(c.id)}단계${c.when ? ' · 자동 시작: ' + esc(c.when) : ''}</span></div>
+          ${on ? `<button class="sm" data-a="tutSkip">그만하기</button>` : `<button class="sm ${dn ? '' : 'pri'}" data-a="courseStart" data-id="${c.id}" ${dis ? 'disabled' : ''}>${dn ? '다시 보기' : '시작'}</button>`}</div>`; }).join('')}</div>
+      <div class="row" style="margin-top:10px"><button class="sm" data-a="courseAutoToggle">${S.settings && S.settings.autoCourse === false ? '자동 시작 꺼짐 — 켜기' : '자동 시작 켜짐 — 끄기'}</button></div></div>`;
+  }
   function pSettings() {
     const st = S.stats;
     return `<h2>설정</h2><div class="grid2"><div class="card"><h3>저장</h3>
@@ -419,7 +477,8 @@
       <h3 style="margin-top:18px">함교 신호음</h3><div class="row"><button data-a="toggleSound" class="${S.settings && S.settings.sound === false ? '' : 'pri'}">${S.settings && S.settings.sound === false ? '신호음 꺼짐 — 켜기' : '신호음 켜짐 — 끄기'}</button></div>
       <h3 style="margin-top:18px">튜토리얼</h3><div class="row">${S.tut && !S.tut.done ? '<button data-a="tutSkip">튜토리얼 건너뛰기</button>' : '<button class="pri" data-a="tutRestart">튜토리얼 다시 보기</button>'}<button data-a="storyReplay">시놉시스 다시 보기</button></div>
       <div class="row" style="margin-top:16px"><button class="danger" data-a="newGame">새 게임 시작 (현재 진행 삭제)</button></div></div>
-      <div class="card"><h3>함장 기록 — ${esc(S.pilot)}</h3><div class="kv"><span>격파한 해적</span><span>${G.fmt(st.kills)}척</span><span>채굴량</span><span>${G.fmt(st.mined)}㎥</span><span>완료한 임무</span><span>${st.missions}건</span><span>탐험 사이트</span><span>${st.sites}곳</span><span>잃은 함선</span><span>${st.lost}척</span><span>보유 함선</span><span>${Object.keys(S.ships).length}척</span><span>훈련한 스킬 레벨</span><span>${Object.values(S.skills).reduce((a, b) => a + b, 0)}</span></div></div></div>`;
+      <div class="card"><h3>함장 기록 — ${esc(S.pilot)}</h3><div class="kv"><span>격파한 해적</span><span>${G.fmt(st.kills)}척</span><span>채굴량</span><span>${G.fmt(st.mined)}㎥</span><span>완료한 임무</span><span>${st.missions}건</span><span>탐험 사이트</span><span>${st.sites}곳</span><span>잃은 함선</span><span>${st.lost}척</span><span>보유 함선</span><span>${Object.keys(S.ships).length}척</span><span>훈련한 스킬 레벨</span><span>${Object.values(S.skills).reduce((a, b) => a + b, 0)}</span></div></div></div>
+      ${courseListHtml()}`;
   }
 
   // ---- 우주 화면 ----
@@ -431,7 +490,8 @@
   const kindName = { npc: '적성 함선', roid: '소행성', wreck: '잔해', can: '컨테이너', station: '기지', gate: '관문', beacon: '신호기', planet: '행성' };
   const celKind = { station: '기지', gate: '관문', belt: '소행성대', anom: '전투 이상현상', data: '데이터 사이트', relic: '유물 사이트', combat: '숨겨진 해적 기지', mission: '임무 지역' };
   function renderOverview() {
-    if (!SP) return; const pl = SP.pl;
+    if (!SP) return; if (UI.sheetHold && !UI.sheetForce) return; // 손가락으로 끄는 동안엔 다시 그리지 않음(손 밑 요소가 사라지면 터치가 끊김)
+    const pl = SP.pl;
     const rs = $('#rangeSel'); if (rs) UI.range = Number(rs.value);
     const busy = SP.warp || SP.docking || SP.undocking;
     const IN = { mine: '채굴 진행 중 — 자동', attack: '교전 중 — 자동', dock: '도킹 접근 중', jump: '관문 접근 중', loot: '회수 접근 중', hack: '해독 준비 중' };
@@ -440,7 +500,7 @@
     if (ovmin && MOB()) { const se = UI.sel && G.byId(SP, UI.sel); const where = SP.cel && G.celInfo ? '' : '';
       const st = busy ? (SP.warp ? '워프 중…' : SP.docking ? '도킹 접근 중…' : '출항 중…') : SP.intent ? `<b>${IN[SP.intent.type] || '자동 진행 중'}</b>${se ? ' · ' + esc(se.name) : ''}` : se ? `선택: ${esc(se.name)}` : `대기 중 · ${esc(G.systems[SP.sys].name)}`;
       sumHtml = `<div class="ovsum mobonly"><span class="st">${st}</span>${SP.intent ? '<button class="sm" data-a="stopIntent">멈춤</button>' : `<button class="go sm" data-a="goHome" ${busy || !G.activeShip(S) ? 'disabled' : ''}>기지로 귀환</button>`}<button class="sm" data-a="ovSheet">목록 ▲</button></div>`; }
-    let html = `${sumHtml}<div class="sheetbar mobonly" data-a="ovSheet"><i></i><span>▼ 눌러서 접기 · 우주 넓게 보기</span></div><div class="ovhome"><button class="go" data-a="goHome" ${busy || !G.activeShip(S) ? 'disabled' : ''}>기지로 귀환</button></div>
+    let html = `${sumHtml}<div class="sheetbar mobonly" data-a="ovSheet"><i></i><span>끌어 올리면 펼침 · 내리면 접힘</span></div><div class="ovhome"><button class="go" data-a="goHome" ${busy || !G.activeShip(S) ? 'disabled' : ''}>기지로 귀환</button></div>
       ${SP.intent ? `<div class="intent"><span>${IN[SP.intent.type] || ''}</span><button class="sm" data-a="stopIntent">멈춤</button></div>` : ''}
       ${SP.afterWarp ? `<div class="intent"><span>기지로 귀항 중 — 도착하면 자동 도킹</span></div>` : ''}
       <div class="tabs" style="padding:8px 8px 0"><button class="${UI.ovTab === 'grid' ? 'on' : ''}" data-a="ovTab" data-t="grid">근처</button><button class="${UI.ovTab === 'sys' ? 'on' : ''}" data-a="ovTab" data-t="sys">이동 (워프)</button>${G.hasProbe(S) ? '<button data-a="scanner">탐침 스캐너</button>' : ''}</div><div class="ovlist">`;
@@ -487,16 +547,16 @@
     SP.mods.forEach((m, i) => { const M = G.modules[m.id]; const A = M.act; const key = m.slot === 'high' ? hk++ : ''; const frac = m.on ? G.clamp(1 - m.cd / (A.cycle || 1), 0, 1) : 0;
       rows[m.slot].push(`<button class="mod ${m.on ? 'on' : ''}" data-a="mod" data-i="${i}" title="${esc(M.name)}">${esc(M.name)}<span class="k">${key}</span><span class="cy" style="width:${frac * 100}%"></span></button>`); });
     const scr = G.scrammed(SP), web = (pl.fx.web || 0) > SP.t;
-    $('#hud').innerHTML = `<div class="hp">${bar(pl.hp.s, st.shield, 's')}<div class="lab"><span>보호막</span><span>${G.fmt(pl.hp.s)}</span></div>${bar(pl.hp.a, st.armor, 'a')}<div class="lab"><span>장갑</span><span>${G.fmt(pl.hp.a)}</span></div>${bar(pl.hp.h, st.hull, 'h')}<div class="lab"><span>선체</span><span>${G.fmt(pl.hp.h)}</span></div></div>
+    { const hh = `<div class="hp">${bar(pl.hp.s, st.shield, 's')}<div class="lab"><span>보호막</span><span>${G.fmt(pl.hp.s)}</span></div>${bar(pl.hp.a, st.armor, 'a')}<div class="lab"><span>장갑</span><span>${G.fmt(pl.hp.a)}</span></div>${bar(pl.hp.h, st.hull, 'h')}<div class="lab"><span>선체</span><span>${G.fmt(pl.hp.h)}</span></div></div>
       <div class="mods">${['high', 'mid', 'low'].filter(k => rows[k].length).map(k => `<div class="mrow">${rows[k].join('')}</div>`).join('') || '<span class="sub small">활성 장비 없음</span>'}</div>
       <div class="hudr"><div>전력 ${G.fmt(pl.cap)} / ${G.fmt(st.cap)}</div>${bar(pl.cap, st.cap, 'c')}
         <div>${Math.round(Math.hypot(pl.vx, pl.vy))} m/s ${scr ? '<span class="bad">워프 교란</span>' : ''} ${web ? '<span class="warn">감속</span>' : ''}</div>
         <div class="row"><button class="sm" data-a="stop">정지</button>${S.dest ? `<button class="sm ${SP.ap ? 'pri' : ''}" data-a="ap">${SP.ap ? '자동 항행 중' : '자동 항행'}</button>` : ''}${sh ? '' : '<button class="sm danger" data-a="cloneJump">귀환 전송</button>'}</div>
-        ${sh ? `<div class="small sub">화물 ${G.fmt(G.cargoUsed(sh))}/${G.fmt(st.cargo)}㎥</div>` : ''}</div>`;
+        ${sh ? `<div class="small sub">화물 ${G.fmt(G.cargoUsed(sh))}/${G.fmt(st.cargo)}㎥</div>` : ''}</div>`; if (hh !== UI.hudHtml || !$('#hud').firstChild) { UI.hudHtml = hh; $('#hud').innerHTML = hh; } }
   }
 
   // ---- 우주 캔버스 ----
-  const stars = Array.from({ length: 560 }, (_, i) => { const r = G.srand(i * 7919 + 1); const b = r(); return { x: r(), y: r(), z: 0.2 + r() * 0.8, b, spike: b > 0.985, col: ['rgba(190,214,255,1)', 'rgba(255,214,170,1)', 'rgba(255,246,230,1)'][Math.floor(r() * 3)] }; });
+  const stars = Array.from({ length: 1150 }, (_, i) => { const r = G.srand(i * 7919 + 1); const b = r(); return { x: r(), y: r(), z: 0.2 + r() * 0.8, b, spike: b > 0.985, col: ['rgba(190,214,255,1)', 'rgba(255,214,170,1)', 'rgba(255,246,230,1)'][Math.floor(r() * 3)] }; });
   const FONT = getComputedStyle(document.body).fontFamily || 'sans-serif';
   // 워프 터널: 카메라 쪽으로 날아오는 별(3D)
   const tunnel = Array.from({ length: 320 }, () => ({ x: Math.random() * 2 - 1, y: Math.random() * 2 - 1, z: Math.random() }));
@@ -518,6 +578,38 @@
     });
     c.restore();
   }
+  // ---- v10: 워프 카메라 ----
+  // k: 0(평소 위에서 내려다봄) → 1(배 뒤에서 따라가는 시점). 정렬 앞부분엔 배만 돌고, 뒷부분에 카메라가 돌아 들어감. 도착하면 천천히 원래대로.
+  const angN = (x) => { x = (x + Math.PI) % (Math.PI * 2); if (x < 0) x += Math.PI * 2; return x - Math.PI; };
+  const ease = (x) => { x = G.clamp(x, 0, 1); return x * x * (3 - 2 * x); };
+  function camWarp(fdt, W, H, cx, cy, mob) {
+    const w = SP.warp, pl = SP.pl, C = UI.cam = UI.cam || { k: 0, dir: -Math.PI / 2, head: null, flow: 0 };
+    const vel = Math.hypot(pl.vx, pl.vy);
+    // 뱃머리 방향: 워프 정렬 중이면 목적지 쪽으로, 아니면 움직이는 쪽으로 — 순간 이동이 아니라 일정 속도로 회전
+    const want = w ? w.dir : vel > 5 ? Math.atan2(pl.vy, pl.vx) : (C.head == null ? -Math.PI / 2 : C.head);
+    if (C.head == null) C.head = want;
+    const turn = w && w.phase === 'align' ? Math.max(0.9, Math.PI / Math.max(0.6, w.align * 0.45)) : w ? 20 : 3.2;
+    const dA = angN(want - C.head); C.head = angN(C.head + Math.sign(dA) * Math.min(Math.abs(dA), turn * fdt));
+    let tgt = 0; if (w) { C.dir = w.dir; tgt = w.phase === 'warp' ? 1 : ease((w.t - w.align * 0.4) / Math.max(0.3, w.align * 0.5)); }
+    if (SP.docking || SP.undocking) tgt = 0;
+    C.k += (tgt - C.k) * Math.min(1, fdt * (tgt > C.k ? 6 : 1.3)); if (C.k < 0.002 && !tgt) C.k = 0;
+    const k = ease(C.k); const rot = angN(-Math.PI / 2 - C.dir) * k;
+    const sheet = mob && innerHeight >= 500 ? ($('#overview').offsetHeight || 0) : 0;
+    const bottom = mob ? (innerHeight < 500 ? H - 70 : H - sheet - 96) : H - 190;
+    const tx = mob && innerHeight >= 500 ? W / 2 : cx, ty = cy + Math.max(0, bottom - cy) * 0.62;
+    const thrust = w ? (w.phase === 'warp' ? 1 : G.clamp(w.t / Math.max(0.3, w.align), 0, 1)) : SP.arrFx || 0;
+    C.flow += fdt * (40 + 900 * thrust * thrust) * k; const dx = Math.cos(C.dir), dy = Math.sin(C.dir);
+    return { k, rot, x: cx + (tx - cx) * k, y: cy + (ty - cy) * k, vy: Math.max(70, H * 0.2), head: C.head, fx: C.flow * dx, fy: C.flow * dy, dx, dy, streak: k * thrust * thrust * 14,
+      zoom: 1 + 0.05 * k + 0.05 * thrust * k, thrust };
+  }
+  // 배 뒤에서 본 모습: 뱃머리가 화면 위를 향하고, 길이 방향으로 조금 눌러 원근감 + 뒤쪽 엔진 불빛
+  function chaseShip(c, x, y, k, sc, T, thrust, ang) {
+    const a = ang == null ? -Math.PI / 2 : ang;
+    c.save(); c.translate(x, y);
+    const gl = 10 + 26 * thrust, gx = -Math.cos(a) * 20 * sc, gy = -Math.sin(a) * 20 * sc * (1 - 0.3 * k); const g = c.createRadialGradient(gx, gy, 0, gx, gy, gl * sc); g.addColorStop(0, `rgba(190,215,255,${(0.25 + 0.5 * thrust) * k})`); g.addColorStop(1, 'rgba(120,160,255,0)');
+    c.fillStyle = g; c.beginPath(); c.arc(gx, gy, gl * sc, 0, 7); c.fill();
+    c.scale(1, 1 - 0.3 * k); G.Art.drawShip(c, 0, 0, a, sc, 'player', T); c.restore();
+  }
   function drawSpace() { G.Art.hull = G.activeShip(S) ? G.activeShip(S).type : null;
     const nowT = performance.now(); const fdt = Math.min(0.1, (nowT - lastDraw) / 1000); lastDraw = nowT; const T = nowT / 1000;
     const cv = $('#cv'); const W = cv.clientWidth, H = cv.clientHeight; const dpr = window.devicePixelRatio || 1;
@@ -526,15 +618,24 @@
     c.fillStyle = '#000'; c.fillRect(0, 0, W, H);
     const pl = SP.pl; const mob = MOB(); if (SP.warp) { UI.panX = 0; UI.panY = 0; } const cx = (mob ? (innerHeight < 500 ? (W - Math.min(330, W * 0.44)) / 2 : W / 2) : W / 2 - 160) + UI.panX, cy = (mob ? (innerHeight < 500 ? H / 2 : $('#space').classList.contains('ovmin') ? (H - 120) / 2 : H * 0.3) : H / 2 - 20) + UI.panY;
     const warping = SP.warp && SP.warp.phase === 'warp';
+    // v10: 워프 연출 — 배가 먼저 목적지 쪽으로 몸을 틀고(정렬), 카메라가 배 뒤로 돌아가 따라감(진행 방향이 화면 위쪽)
+    const CW = camWarp(fdt, W, H, cx, cy, mob); const k = CW.k, rot = CW.rot, pcx = CW.x, pcy = CW.y;
     const dk = SP.docking ? G.clamp(SP.docking.t / SP.docking.dur, 0, 1) : 0; const uk = SP.undocking ? G.clamp(SP.undocking.t / SP.undocking.dur, 0, 1) : 1;
     const z = UI.zoom * (1 + (dk * dk * (3 - 2 * dk)) * 2.4 + (1 - uk) * 1.8);
     // 별 배경
     // v9: 성계마다 다른 먼 성운·은하 배경 (아주 천천히 움직임) + 촘촘한 별 + 밝은 별은 십자 빛갈래
     if (SP.bgAt !== SP.cel) { SP.bgAt = SP.cel; SP.bgX = pl.x; SP.bgY = pl.y; }
+    c.save(); if (k > 0.001) { c.translate(W / 2, H / 2); c.rotate(rot); c.scale(CW.zoom, CW.zoom); c.translate(-W / 2, -H / 2); }
     G.Art.drawSpaceBg && G.Art.drawSpaceBg(c, W, H, SP.sys, -Math.tanh((pl.x - SP.bgX) / 120000) * 60 + UI.panX * 0.04, -Math.tanh((pl.y - SP.bgY) / 120000) * 60 + UI.panY * 0.04, warping ? 0.35 : 1);
-    stars.forEach(s => { const px = ((s.x * W - pl.x * z * 0.05 * s.z) % W + W) % W, py = ((s.y * H - pl.y * z * 0.05 * s.z) % H + H) % H;
+    const SD = Math.hypot(W, H), ox0 = (W - SD) / 2, oy0 = (H - SD) / 2; // 회전해도 빈 모서리가 없도록 대각선 크기 정사각형에 별을 뿌림
+    stars.forEach(s => { const px = ox0 + ((s.x * SD - pl.x * z * 0.05 * s.z - CW.fx * s.z) % SD + SD) % SD, py = oy0 + ((s.y * SD - pl.y * z * 0.05 * s.z - CW.fy * s.z) % SD + SD) % SD;
+      if (px < -4 || py < -4 || px > W + 4 || py > H + 4) { if (k < 0.001) return; }
       if (s.spike) { G.Art.drawSpikeStar ? G.Art.drawSpikeStar(c, px, py, 0.9 + s.z * 1.2, s.col, 0.55 + 0.2 * Math.sin(T * 0.7 + s.x * 40)) : null; return; }
+      const sl = CW.streak * s.z; if (sl > 1) { c.strokeStyle = `rgba(255,246,230,${0.12 + s.b * 0.5})`; c.lineWidth = s.z * 1.3; c.beginPath(); c.moveTo(px, py); c.lineTo(px + CW.dx * sl, py + CW.dy * sl); c.stroke(); return; }
       c.fillStyle = `rgba(255,246,230,${0.12 + s.b * 0.5})`; c.fillRect(px, py, s.z * 1.3, s.z * 1.3); });
+    c.restore();
+    // 세계(천체·물체)는 카메라 변환 안에서 그림: 배 위치(pcx,pcy)를 중심으로 회전 + 진행 방향으로 살짝 눌러 원근감
+    c.save(); if (k > 0.001) { c.translate(pcx, pcy); c.scale(1, 1 - 0.3 * k); c.rotate(rot); c.translate(-cx, -cy); }
     // 성계의 항성과 먼 행성 (현재 위치에서 본 방향)
     const here = G.celInfo(SP, SP.cel); const hp = here && here.pos ? here.pos : { x: 6, y: 4 };
     const star = G.starOf(SP.sys); const dAU = Math.max(0.6, Math.hypot(hp.x, hp.y)); const sa = Math.atan2(-hp.y, -hp.x);
@@ -554,9 +655,10 @@
     if (warping && !SP.warp.beeped) { SP.warp.beeped = true; G.Art.beep('warp'); }
     if (SP.docking && !SP.docking.beeped) { SP.docking.beeped = true; G.Art.beep('dock'); }
     if (warping) {
-      const p = SP.warp.t / SP.warp.dur; const v = 0.15 + 0.85 * G.warpSpeed(p);
-      drawTunnel(c, W, H, cx, cy, v, 1, fdt);
-      G.Art.drawShip(c, cx, cy, SP.warp.dir, 1.3, 'player', T);
+      c.restore(); const p = SP.warp.t / SP.warp.dur; const v = 0.15 + 0.85 * G.warpSpeed(p);
+      drawTunnel(c, W, H, pcx, CW.vy, v, 1, fdt);
+      chaseShip(c, pcx, pcy, 1, 1.45 + 0.08 * v, T, v);
+      cv._hit = () => null; cv._toWorld = null;
       return;
     }
     const X = (x) => cx + (x - pl.x) * z, Y = (y) => cy + (y - pl.y) * z;
@@ -602,16 +704,19 @@
       if (!f.miss) { c.fillStyle = f.c; c.beginPath(); c.arc(bx, by, 4 + 3 * life, 0, 7); c.fill(); }
       c.globalAlpha = 1;
     });
-    // 내 함선
-    const a = Math.hypot(pl.vx, pl.vy) > 5 ? Math.atan2(pl.vy, pl.vx) : (UI.lastHead != null ? UI.lastHead : -Math.PI / 2); UI.lastHead = a;
-    const sc = (G.activeShip(S) ? 1.15 : 0.5) * (1 - dk * 0.8) * (0.25 + 0.75 * uk);
-    if (G.activeShip(S)) G.Art.drawShip(c, cx, cy, a, sc, 'player', T, 1 - Math.max(0, dk - 0.75) * 3);
-    else { c.fillStyle = '#e8c9a0'; c.beginPath(); c.ellipse(cx, cy, 5, 3, a, 0, 7); c.fill(); }
-    if (Math.hypot(pl.vx, pl.vy) > 40 && !SP.docking) { c.strokeStyle = 'rgba(127,184,255,0.35)'; c.lineWidth = 2; c.beginPath(); c.moveTo(cx - Math.cos(a) * 24 * sc, cy - Math.sin(a) * 24 * sc); c.lineTo(cx - Math.cos(a) * 44 * sc, cy - Math.sin(a) * 44 * sc); c.stroke(); }
-    if (SP.arrFx > 0) drawTunnel(c, W, H, cx, cy, 0.15 * SP.arrFx, SP.arrFx, fdt);
     if (SP.cmd.type === 'goto') { c.strokeStyle = '#ffb000'; c.beginPath(); c.arc(X(SP.cmd.x), Y(SP.cmd.y), 6, 0, 7); c.stroke(); }
+    c.restore();
+    // 내 함선 (뱃머리는 천천히 돌아감 — 워프 정렬 때 목적지 쪽으로 몸을 트는 모습)
+    const a = CW.head;
+    const sc = (G.activeShip(S) ? 1.15 : 0.5) * (1 - dk * 0.8) * (0.25 + 0.75 * uk);
+    if (SP.arrFx > 0) drawTunnel(c, W, H, pcx, CW.vy + (pcy - CW.vy) * (1 - k), 0.15 * SP.arrFx, SP.arrFx, fdt);
+    if (G.activeShip(S) && k > 0.001) chaseShip(c, pcx, pcy, k, sc * (1 + 0.26 * k), T, CW.thrust, a + rot);
+    else if (G.activeShip(S)) G.Art.drawShip(c, cx, cy, a, sc, 'player', T, 1 - Math.max(0, dk - 0.75) * 3);
+    else { c.fillStyle = '#e8c9a0'; c.beginPath(); c.ellipse(cx, cy, 5, 3, a, 0, 7); c.fill(); }
+    if (Math.hypot(pl.vx, pl.vy) > 40 && !SP.docking && k < 0.05) { c.strokeStyle = 'rgba(127,184,255,0.35)'; c.lineWidth = 2; c.beginPath(); c.moveTo(cx - Math.cos(a) * 24 * sc, cy - Math.sin(a) * 24 * sc); c.lineTo(cx - Math.cos(a) * 44 * sc, cy - Math.sin(a) * 44 * sc); c.stroke(); }
     c.font = '11px ' + FONT; c.textAlign = 'left'; c.fillStyle = '#7a6a58';
     if (!mob) c.fillText(`눈금 ${km(100 / z)} / 100px · 휠 확대 · 빈 곳 더블클릭 이동`, 12, H - 168);
+    if (k > 0.02) { cv._hit = () => null; cv._toWorld = null; return; }
     cv._hit = (mx, my) => { let best = null; SP.ents.forEach(e => { if (e.kind === 'planet') return; const d = (X(e.x) - mx) ** 2 + (Y(e.y) - my) ** 2; const rr = Math.max(mob ? 28 : 16, (e.r || 0) * z); if (d < rr * rr && (!best || d < best.d)) best = { id: e.id, d }; }); return best && best.id; };
     cv._toWorld = (mx, my) => ({ x: pl.x + (mx - cx) / z, y: pl.y + (my - cy) / z });
   }
@@ -684,16 +789,18 @@
     crewPick: (d) => { const c = UI.crew; UI.crew = null; $('#crew').hidden = true; if (c && c.opts[d.i] && c.opts[d.i].fn) c.opts[d.i].fn(); G.Art.beep('ok'); },
     evPick: (d) => { const ev = UI.event; if (!ev || ev.res) return; ev.res = G.resolveEvent(S, SP, ev.id, Number(d.i)); G.Art.beep(ev.res.dmg ? 'alert' : 'ok'); renderEvent(); renderTop(); save(); },
     evClose: () => { UI.event = null; $('#evcard').hidden = true; },
-    page: (d) => { UI.page = d.p; if (UI.newF) delete UI.newF[d.p]; refresh(); },
+    page: (d) => { UI.page = d.p; if (UI.newF) delete UI.newF[d.p]; const auto = { market: 'trade', agents: 'mission', fitting: 'fitting', skills: 'skills', map: 'explore', hangar: 'yard' }[d.p]; if (auto && G.courseAuto(S, auto, UI)) { tutKey = ''; save(); } refresh(); },
     intent: (d) => { if (!UI.sel) return; res(G.setIntent(SP, d.t, UI.sel)); renderOverview(); },
     stopIntent: () => { SP.intent = null; SP.cmd = { type: 'stop' }; SP.mods.forEach(m => { if (['mine', 'turret', 'missile', 'prop'].includes(G.modules[m.id].act.kind)) m.on = false; }); renderOverview(); },
     goHome: () => { res(G.goHome(SP)); UI.sel = null; renderOverview(); },
     sellCargo: () => { const r = G.sellAllCargo(S); toast(r.msg, !r.ok); refresh(); save(); },
     fitQuick: (d) => { const r = res(G.fitQuick(S, G.activeShip(S), d.id)); if (r.ok) toast(`${G.modules[d.id].name}을(를) 장착했어요.`); refresh(); },
-    tutNext: () => { G.tutNext(S); afterTut(); },
-    tutSkip: () => { if (confirm('튜토리얼을 건너뛸까요? 모든 메뉴가 바로 열려요. (설정에서 다시 볼 수 있어요)')) { G.tutSkip(S); afterTut(); } },
+    tutNext: () => { if (G.tutStep(S)) G.tutNext(S); else G.courseNext(S, UI); afterTut(); },
+    courseStart: (d) => { if (d.id === 'basic') return A.tutRestart(); if (S.tut && !S.tut.done) return toast('기본 과정을 먼저 마쳐 주세요.', true); G.courseStart(S, d.id, UI); UI.tutOpen = true; afterTut(); if (S.loc.docked) refresh(); },
+    courseAutoToggle: () => { S.settings = S.settings || {}; S.settings.autoCourse = S.settings.autoCourse === false; save(); refresh(); },
+    tutSkip: () => { if (!G.tutStep(S) && G.courseActive(S)) { if (confirm(`"${G.COURSE[S.course].name}" 과정을 그만둘까요? 설정 → 교육 과정에서 언제든 다시 볼 수 있어요.`)) { G.courseSkip(S); afterTut(); if (S.loc.docked) refresh(); } return; } if (confirm('튜토리얼을 건너뛸까요? 모든 메뉴가 바로 열려요. (설정에서 다시 볼 수 있어요)')) { G.tutSkip(S); afterTut(); } },
     tutRestart: () => { if (!S.loc.docked) return toast('기지 안에서 다시 볼 수 있어요.', true); G.tutRestart(S); UI.page = 'station'; afterTut(); },
-    undock: () => { const r = res(G.undock(S)); if (r.ok) { SP = r.sp; UI.sel = null; UI.ovTab = 'sys'; showSpace(true); renderSlog(); renderOverview(); renderTop(); save(); } },
+    undock: () => { const r = res(G.undock(S)); if (r.ok) { if (G.courseAuto(S, 'move', UI)) tutKey = ''; SP = r.sp; UI.sel = null; UI.ovTab = 'sys'; showSpace(true); renderSlog(); renderOverview(); renderTop(); save(); } },
     repair: () => { res(G.repair(S, G.activeShip(S))); refresh(); },
     insure: (d) => { res(G.insure(S, S.ships[d.id])); refresh(); },
     setClone: () => { S.clone = S.loc.station; G.log(S, `귀환 기지을 ${G.stations[S.clone].name}(으)로 설정했습니다.`); refresh(); },
@@ -701,6 +808,12 @@
     toCargo: (d) => { const n = G.moveToCargo(S, S.loc.station, d.id, G.hasItem(S, S.loc.station, d.id)); toast(n ? `${G.items[d.id].name} ${G.fmt(n)}개를 화물칸에 실었습니다.` : '화물칸 공간이 부족합니다.', !n); refresh(); },
     toHangar: (d) => { const sh = G.activeShip(S); G.moveToHangar(S, S.loc.station, d.id, sh.cargo[d.id]); refresh(); },
     quickSell: (d) => { UI.page = 'market'; UI.mkItem = d.id; UI.mkSearch = ''; UI.mkCat = G.items[d.id].cat; UI.mkQty = G.hasItem(S, S.loc.station, d.id); refresh(); },
+    yardTab: (d) => { UI.yardTab = d.t; if (d.t !== 'buy') UI.yardBuy = UI.yardBuy; if (UI.page !== 'hangar') UI.page = 'hangar'; refresh(); },
+    yardView: (d) => { UI.yardView = d.id; refresh(); },
+    yardPick: (d) => { UI.yardBuy = d.id; refresh(); },
+    yardBuyBtn: (d) => { const it = G.items[d.id]; if (!confirm(`${it.name}을(를) ${G.fmtCR(G.priceInfo(S, S.loc.station, d.id).ask)}에 살까요?`)) return; const before = Object.keys(S.ships); const r = res(G.buy(S, S.loc.station, d.id, 1));
+      if (r.ok) { const nid = Object.keys(S.ships).find(k => !before.includes(k)); UI.yardTab = 'status'; UI.yardView = nid || null; toast(`${it.name}이(가) 정비고에 들어왔어요. [탑승]을 누르면 갈아타요.`); save(); } refresh(); },
+    yardMarket: (d) => { UI.page = 'market'; UI.mkCat = 'ship'; UI.mkSearch = ''; UI.mkItem = d.id; UI.mkQty = 1; refresh(); },
     board: (d) => { res(G.boardShip(S, d.id)); refresh(); },
     sellShip: (d) => { if (confirm('이 함선을 교역소에 팔까요?')) { res(G.sellShip(S, d.id)); refresh(); } },
     mkCat: (d) => { UI.mkCat = d.c; UI.mkSearch = ''; refresh(); },
@@ -725,7 +838,7 @@
     setDestSt: (d) => { S.dest = { sys: G.stations[d.id].sys, station: d.id, safe: true }; toast(`목적지: ${G.stations[d.id].name}`); refresh(); rerenderModal(); },
     clearDest: () => { S.dest = null; if (SP) SP.ap = false; refresh(); rerenderModal(); },
     saveBtn: () => { if (SP) G.saveHp(SP); save(); toast('저장했습니다.'); },
-    ovSheet: () => { $('#space').classList.toggle('ovmin'); UI.ovAuto = false; renderOverview(); },
+    ovSheet: () => { setSheet(sheetState() === 'min' ? 'half' : 'min'); },
     storyNext: () => { const st = UI.story; if (!st) return; if (st.i < SYN().length - 1) st.i++; else st.stage = 'ways'; renderStory(); renderTut(); },
     storySkip: () => { const st = UI.story; if (!st) return; if (st.stage === 'syn') { st.stage = 'ways'; renderStory(); renderTut(); } else closeStory(); },
     storyGo: () => closeStory(),
@@ -781,7 +894,9 @@
     if (a === 'scanClick') { const r = t.getBoundingClientRect(); const p = t._toAU((ev.clientX - r.left) * t.width / r.width, (ev.clientY - r.top) * t.height / r.height); UI.probe.x = p.x; UI.probe.y = p.y; drawScanner(); return; }
     if (A[a]) { if (!['crewPick', 'evPick', 'sel', 'mod'].includes(a)) G.Art.beep('click'); A[a](t.dataset, t, ev); }
   }
-  document.addEventListener('pointerdown', (ev) => { if (ev.target.id === 'rangeSel') UI.selFocus = performance.now(); if (ev.button !== 0) return; const t = ev.target.closest('[data-a]'); if (!t || t.disabled || !FAST(t) || t.tagName === 'SELECT') return; ev.preventDefault(); dispatch(ev, t); });
+  document.addEventListener('pointerdown', (ev) => { if (ev.target.id === 'rangeSel') UI.selFocus = performance.now(); if (ev.button !== 0) return; const t = ev.target.closest('[data-a]'); if (!t || t.disabled || !FAST(t) || t.tagName === 'SELECT') return;
+    if (ev.pointerType === 'touch' && sheetDragOK() && t.closest('#overview .sheetbar, #overview .ovsum')) { UI.sheetTap = t; return; } // 끌기 손잡이 위: 손을 뗄 때 '톡'인지 '끌기'인지 보고 처리
+    ev.preventDefault(); dispatch(ev, t); });
   document.addEventListener('click', (ev) => { const t = ev.target.closest('[data-a]'); if (!t || t.disabled || FAST(t) || t.tagName === 'SELECT') return; dispatch(ev, t); });
   document.addEventListener('input', (ev) => {
     if (ev.target.id === 'mksearch') { UI.mkSearch = ev.target.value.trim(); renderMain(); }
@@ -790,7 +905,7 @@
   document.addEventListener('change', (ev) => { if (ev.target.id === 'rangeSel') { UI.range = Number(ev.target.value); ev.target.blur(); } });
   const cv = $('#cv');
   cv.addEventListener('click', (ev) => { if (!SP) return; const r = cv.getBoundingClientRect(); const id = cv._hit && cv._hit(ev.clientX - r.left, ev.clientY - r.top); if (id) { UI.sel = id; UI.ovTab = 'grid'; renderOverview(); } });
-  cv.addEventListener('dblclick', (ev) => { if (!SP || SP.warp) return; const r = cv.getBoundingClientRect(); const p = cv._toWorld(ev.clientX - r.left, ev.clientY - r.top); SP.cmd = { type: 'goto', x: p.x, y: p.y }; });
+  cv.addEventListener('dblclick', (ev) => { if (!SP || SP.warp || !cv._toWorld) return; const r = cv.getBoundingClientRect(); const p = cv._toWorld(ev.clientX - r.left, ev.clientY - r.top); SP.cmd = { type: 'goto', x: p.x, y: p.y }; });
   // v7: 손가락 조작 — 톡 누르기=선택, 꾹 누르기(또는 '이동' 버튼 후 톡)=그곳으로 이동, 한 손가락 끌기=화면 이동, 두 손가락=확대/축소
   (() => { let t0 = null, pinch = null, lp = null, moved = false;
     const P = (t) => { const r = cv.getBoundingClientRect(); return { x: t.clientX - r.left, y: t.clientY - r.top }; };
@@ -806,8 +921,40 @@
     cv.addEventListener('touchend', (ev) => { if (!SP) return; ev.preventDefault(); clearTimeout(lp); if (ev.touches.length === 0) pinch = null;
       if (!t0 || moved) { if (ev.touches.length === 0) t0 = null; return; } const p = t0.p; t0 = null;
       if (UI.moveMode) { gotoAt(p); return; }
-      const id = cv._hit && cv._hit(p.x, p.y); if (id) { UI.sel = id; UI.ovTab = 'grid'; $('#space').classList.remove('ovmin'); renderOverview(); G.Art.beep('click'); } }, { passive: false });
+      const id = cv._hit && cv._hit(p.x, p.y); if (id) { UI.sel = id; UI.ovTab = 'grid'; if (sheetState() === 'min') setSheet('half'); else renderOverview(); G.Art.beep('click'); } }, { passive: false });
     cv.addEventListener('touchcancel', () => { clearTimeout(lp); t0 = null; pinch = null; });
+  })();
+  // ---- v10: 휴대폰 아래 칸(바텀시트) 끌어서 접고 펴기 ----
+  // 손잡이·요약 줄을 잡고 끌면 손가락을 따라 움직이고, 놓으면 가까운 높이(접힘·반·펼침)로 붙음. 빠르게 튕기면 그 방향으로.
+  // 목록(.ovlist) 안에서 시작한 끌기는 목록 스크롤로 남겨 두고, 우주 화면(캔버스) 끌기와도 따로 처리됨. 손잡이를 '톡' 누르면 예전처럼 접기/펴기.
+  function sheetDragOK() { return MOB() && innerHeight >= 500 && SP && !$('#space').hidden; }
+  function sheetState() { const sp = $('#space'); return sp.classList.contains('ovmin') ? 'min' : sp.classList.contains('ovfull') ? 'full' : 'half'; }
+  function sheetSnaps() { const H = innerHeight; return { min: UI.sheetMinH || 60, half: Math.round(H * 0.4), full: Math.round(H * 0.8) }; }
+  function setSheet(st, auto) { const sp = $('#space'); const was = sheetState(); sp.classList.toggle('ovmin', st === 'min'); sp.classList.toggle('ovfull', st === 'full'); sp.style.removeProperty('--sheetH');
+    if (!auto) UI.ovAuto = false; if (was !== st || !auto) renderOverview(); }
+  G.sheet = { state: sheetState, set: setSheet };
+  (() => { const ov = $('#overview'); let d = null;
+    ov.addEventListener('touchstart', (ev) => { if (!sheetDragOK() || ev.touches.length !== 1) { d = null; UI.sheetHold = false; return; } const z = ev.target.closest('.sheetbar, .ovsum'); if (!z) { d = null; UI.sheetHold = false; UI.sheetTap = null; return; }
+      if (sheetState() === 'min') UI.sheetMinH = ov.offsetHeight;
+      const y = ev.touches[0].clientY; UI.sheetHold = true; d = { y0: y, h0: ov.offsetHeight, moved: false, pts: [[ev.timeStamp || performance.now(), y]] }; }, { passive: true });
+    document.addEventListener('touchmove', (ev) => { if (!d) return; /* 다시 그려져 손 밑 요소가 바뀌어도 이어서 받도록 문서에서 받음 */ const y = ev.touches[0].clientY; const dy = y - d.y0;
+      if (!d.moved) { if (Math.abs(dy) < 8) return; d.moved = true; UI.sheetDrag = true; UI.sheetTap = null; const sp = $('#space'); sp.classList.add('sheetdrag');
+        const wasMin = sheetState() === 'min'; if (wasMin || sheetState() === 'full') { const keep = ov.querySelector('.ovsum'); sp.classList.remove('ovmin', 'ovfull'); sp.style.setProperty('--sheetH', d.h0 + 'px'); if (wasMin) { UI.sheetForce = true; renderOverview(); UI.sheetForce = false; if (keep && !keep.isConnected) ov.prepend(keep); } } }
+      ev.preventDefault(); const S2 = sheetSnaps(); const h = G.clamp(d.h0 - dy, S2.min, innerHeight * 0.88);
+      $('#space').style.setProperty('--sheetH', Math.round(h) + 'px'); d.h = h;
+      const now = ev.timeStamp || performance.now(); d.pts.push([now, y]); /* 입력 장치 시각 기준 속도 */ while (d.pts.length > 2 && now - d.pts[0][0] > 90) d.pts.shift(); }, { passive: false });
+    const end = (ev) => { if (!d) return; const dd = d; d = null; UI.sheetHold = false;
+      if (!dd.moved) { const t = UI.sheetTap; UI.sheetTap = null; if (t && ev.type === 'touchend') { ev.preventDefault(); dispatch(ev.changedTouches ? ev.changedTouches[0] : ev, t); } return; }
+      ev.preventDefault(); const sp = $('#space'); sp.classList.remove('sheetdrag'); UI.sheetDrag = false;
+      const p0 = dd.pts[0], p1 = dd.pts[dd.pts.length - 1]; const rest = (ev.timeStamp || performance.now()) - p1[0] > 120; /* 멈췄다가 떼면 튕기기 아님 */ const v = rest ? 0 : (p1[1] - p0[1]) / Math.max(16, p1[0] - p0[0]); UI.sheetV = +v.toFixed(2); // px/ms (+는 아래로)
+      const S2 = sheetSnaps(); const h = dd.h == null ? dd.h0 : dd.h; const order = [['min', S2.min], ['half', S2.half], ['full', S2.full]];
+      let st;
+      if (v < -1.5) st = 'full'; else if (v > 1.5) st = 'min'; /* 세게 튕기면 끝까지 */
+      else if (v < -0.5) st = (order.find(o => o[1] > h + 12) || order[2])[0];
+      else if (v > 0.5) st = (order.slice().reverse().find(o => o[1] < h - 12) || order[0])[0];
+      else st = order.slice().sort((a, b) => Math.abs(a[1] - h) - Math.abs(b[1] - h))[0][0];
+      UI.ovAuto = false; setSheet(st); UI.sheetDragAt = performance.now(); };
+    document.addEventListener('touchend', end, { passive: false }); document.addEventListener('touchcancel', end, { passive: false });
   })();
   document.addEventListener('gesturestart', (ev) => ev.preventDefault());
   cv.addEventListener('wheel', (ev) => { ev.preventDefault(); UI.zoom = G.clamp(UI.zoom * (ev.deltaY > 0 ? 0.85 : 1.18), 1 / 2000, 1 / 5); }, { passive: false });
@@ -880,7 +1027,7 @@
     if (sh && G.cargoFree(S, sh) > 5) SP.warnCargo = false;
   }
   function crewOnArrive(e) {
-    if (!S.tut || !S.tut.done || SP.dead) return;
+    if (!S.tut || !S.tut.done || SP.dead || S.course) return;
     const info = G.celInfo(SP, SP.cel) || {}; const npcs = SP.ents.filter(x => x.kind === 'npc' && x.hostile);
     const nearest = (k) => SP.ents.filter(x => x.kind === k).sort((a, b) => G.dist(SP.pl, a) - G.dist(SP.pl, b))[0];
     if (npcs.length) return crewSay('tac', `적성 함선 ${npcs.length}척 포착! ${G.factions[npcs[0].faction] ? G.factions[npcs[0].faction].short + ' 소속입니다.' : ''} 교전하시겠습니까?`, [
@@ -913,7 +1060,7 @@
 
   // ---- 튜토리얼 안내 (강조 테두리 + 화살표 + 설명 카드) ----
   function tutInfo() {
-    const st = G.tutStep(S); if (!st) return null;
+    const st = G.tutStep(S); if (!st) return courseInfo();
     const D = S.loc.docked; const n = G.TUT.length - 1; const idx = S.tut.step;
     const pg = (p) => (UI.page !== p ? [`#side [data-a=page][data-p=${p}]`] : []);
     const mob = MOB(); const LST = mob ? '아래 목록의' : '오른쪽 목록의'; const MENU = mob ? '아래 메뉴의' : '왼쪽 메뉴의';
@@ -924,12 +1071,14 @@
     const selKind = SP && UI.sel && G.byId(SP, UI.sel) ? G.byId(SP, UI.sel).kind : null;
     switch (st.id) {
       case 'intro': return out({ title: '함장님, 취임을 환영합니다', text: `부함장 ${G.CREW.xo.name}입니다. 오늘부터 "${G.activeShip(S) ? G.activeShip(S).name : ''}"의 첫 항해를 보좌하겠습니다. 노란 테두리로 표시된 곳을 누르시면 됩니다.`, next: '항해 시작' });
+      case 'screen': return out({ title: '화면 둘러보기', text: `화면 안내입니다. 맨 위 줄에 자금(LM)·현재 위치와 보안 등급·함선 상태가 표시됩니다. ${mob ? '아래 메뉴 줄' : '왼쪽 메뉴'}에서 기지 시설을 고르시고, 처음에는 [기지]만 열려 있습니다. 교육이 진행되면 메뉴가 하나씩 열립니다.`, hl: '#top', next: '확인' });
+      case 'space': return out({ title: '우주 화면 보기', text: busyTxt() || (mob ? '출항 완료입니다. 가운데가 우리 함선입니다. 아래 칸은 손잡이를 끌어 올리면 목록이 펼쳐지고, 끌어 내리면 접힙니다. 그 위 줄은 장비(모듈) 버튼입니다. 화면을 끌면 시점이 움직이고 [가운데]로 돌아옵니다.' : '출항 완료입니다. 가운데가 우리 함선입니다. 오른쪽은 주변 물체와 워프 지점 목록, 아래는 장비(모듈) 버튼입니다. 마우스 휠로 확대·축소하실 수 있습니다.'), hl: '#overview', next: busyTxt() ? null : '확인' });
       case 'undock': return out({ title: '1. 우주로 나가기', text: D ? '출항 준비 완료입니다. [출항]을 눌러 주십시오.' : (busyTxt() || ''), t: D ? ['#heroUndock', '#side [data-a=undock]'] : [] });
       case 'warpBelt': {
         if (D) return out({ title: '2. 소행성대로 워프', text: '먼저 [출항]을 눌러 주십시오.', t: ['#heroUndock', '#side [data-a=undock]'] });
         const b = busyTxt(); if (b) return out({ title: '2. 소행성대로 워프', text: b });
         if (UI.ovTab !== 'sys') return out({ title: '2. 소행성대로 워프', text: `목표는 소행성대입니다. ${LST} [이동 (워프)] 탭을 눌러 주십시오.`, t: ['[data-a=ovTab][data-t=sys]'] });
-        return out({ title: '2. 소행성대로 워프', text: '"소행성대" 줄의 [워프]를 눌러 주십시오.', t: ['[data-a=warp][data-kind=belt]'] });
+        return out({ title: '2. 소행성대로 워프', text: '"소행성대" 줄의 [워프]를 눌러 주십시오. 워프 전에 함선이 목적지 쪽으로 방향을 돌립니다.', t: ['[data-a=warp][data-kind=belt]'], hint: '목록이 접혀 있으면 아래 손잡이를 끌어 올리거나 [목록 ▲]를 눌러 주십시오.' });
       }
       case 'mine': case 'fill': {
         const title = st.id === 'mine' ? '3. 광석 캐기' : '3. 광석 캐기 — 화물칸 채우기';
@@ -950,9 +1099,37 @@
         return out({ title: '6. 임무 받기', text: UI.page !== 'agents' ? `판매 완료입니다. 다음은 임무 수령입니다. ${MENU} 새 메뉴 [임무 본부]를 눌러 주십시오.` : '보상이 마음에 드시는 임무의 [수락]을 눌러 주십시오.', t: UI.page !== 'agents' ? pg('agents') : ['#main [data-a=accept]'] });
       case 'fit': if (!D) return out(Object.assign({ title: '7. 장비 달기' }, home));
         return out({ title: '7. 장비 달기', text: UI.page !== 'fitting' ? `보급품으로 "소형 보호막 확장기"를 지급했습니다. ${MENU} [장착]을 눌러 주십시오.` : '"소형 보호막 확장기" 옆 [빈 칸에 장착]을 눌러 주십시오. 방어력이 올라갑니다.', t: UI.page !== 'fitting' ? pg('fitting') : ['#main [data-a=fitQuick][data-id=m_sext_s]'] });
-      case 'done': return out({ title: '교육 과정 완료', text: '교육 과정을 마쳤습니다. 보상 50,000 LM 지급, 스킬·항성도 메뉴를 열었습니다. 받은 임무는 [임무 본부]에서 확인하실 수 있습니다. 튜토리얼은 [설정]에서 다시 보실 수 있습니다.', next: '마치기' });
+      case 'done': return out({ title: '기본 과정 완료', text: '기본 과정을 마쳤습니다. 보상 50,000 LM 지급, 스킬·항성도 메뉴를 열었습니다. 받은 임무는 [임무 본부]에서 확인하실 수 있습니다. 무역·전투·임무 등 활동별 교육 과정은 처음 해 보실 때 자동으로 시작되며, [설정] → 교육 과정에서 골라 보실 수도 있습니다.', next: '마치기' });
     }
     return null;
+  }
+  // v10: 활동별 교육 과정 화면 안내 — 단계 문구에 넣을 값들을 모아 courses.js에 넘김
+  function courseInfo() {
+    const id = G.courseActive(S); if (!id) return null; const C = G.COURSE[id]; const cs = S.courses[id]; const step = C.steps[cs.step]; if (!step) return null;
+    const D = S.loc.docked; const mob = MOB(); const sh = G.activeShip(S);
+    const busy = SP && SP.undocking ? '출항 중입니다. 잠시 대기 바랍니다.' : SP && SP.docking ? '도킹 접근 중입니다. 곧 입항합니다.' : SP && SP.warp ? (SP.warp.phase === 'align' ? '워프 정렬 중입니다. 함선이 목적지 쪽으로 방향을 돌리고 있습니다.' : '워프 항행 중입니다. 도착 시 보고드리겠습니다.') : null;
+    const sel = SP && UI.sel ? G.byId(SP, UI.sel) : null;
+    const c = { s: S, sp: SP, ui: UI, D, mob, busy, LST: mob ? '아래 목록의' : '오른쪽 목록의', MENU: mob ? '아래 메뉴의' : '왼쪽 메뉴의',
+      pg: (p) => (UI.page !== p ? [`#side [data-a=page][data-p=${p}]`] : []), sel, selKind: sel ? sel.kind : null, dist: sel && SP ? G.dist(SP.pl, sel) : 0,
+      speed: SP ? Math.hypot(SP.pl.vx, SP.pl.vy) : 0, reward: S.courses[id].paid ? 0 : G.COURSE_REWARD, ship: sh,
+      hostiles: SP ? G.courseHelpers.hostiles(SP).length : 0, hasAnom: !!(SP && G.warpables(SP).some(x => x.kind === 'anom')) };
+    if (sh) { const x = G.shipStats(S, sh); c.cargoCap = x.cargo; c.cargoUsed = G.cargoUsed(sh); c.cargoFree = Math.max(0, x.cargo - c.cargoUsed); c.slots = G.ships[sh.type].slots; c.fitStats = G.validateFit(S, sh).stats; }
+    if (SP) { const hp = SP.pl.hp, st = SP.pl.st; c.hp = { s: Math.round(hp.s / st.shield * 100), a: Math.round(hp.a / st.armor * 100), h: Math.round(hp.h / st.hull * 100) };
+      const wi = SP.mods.findIndex(m => ['turret', 'missile'].includes(G.modules[m.id].act.kind)); if (wi >= 0) { const A = G.modules[SP.mods[wi].id].act; c.weapon = { name: G.modules[SP.mods[wi].id].name, range: A.kind === 'turret' ? A.opt + A.fo : A.range }; }
+      const mi = SP.mods.findIndex(m => G.modules[m.id].act.kind === 'mine'); if (mi >= 0) { c.minerIdx = mi; c.minerName = G.modules[SP.mods[mi].id].name; c.minerRange = G.modules[SP.mods[mi].id].act.range || 0; }
+      const en = G.courseHelpers.hostiles(SP).sort((a, b) => G.dist(SP.pl, a) - G.dist(SP.pl, b))[0]; if (en) c.enemyDist = G.dist(SP.pl, en);
+      const r = sel && sel.kind === 'roid' ? sel : SP.ents.find(e => e.kind === 'roid' && SP.targets.includes(e.id)); if (r && G.items[r.ore]) { c.oreName = G.items[r.ore].name; c.oreVol = G.items[r.ore].vol; c.orePrice = G.items[r.ore].price; } }
+    if (D && UI.mkItem && G.items[UI.mkItem] && G.items[UI.mkItem].cat === 'trade') { const it = G.items[UI.mkItem]; c.item = it; c.price = G.priceInfo(S, S.loc.station, it.id);
+      c.maxFit = Math.floor((c.cargoFree || 0) / it.vol); c.maxBuy = Math.floor(S.credits / Math.max(1, c.price.ask));
+      const cmp = G.compare(S, it.id, S.loc.sys).filter(x => x.st !== S.loc.station).map(x => ({ name: G.stations[x.st].name, jumps: x.jumps, gain: x.bid - c.price.ask })).sort((a, b) => b.gain - a.gain)[0]; if (cmp && cmp.gain > 0) c.best = cmp; }
+    if (D) c.tradeIds = Object.keys(G.hangar(S, S.loc.station)).filter(k => G.items[k] && G.items[k].cat === 'trade');
+    const m = S.missions.active[S.missions.active.length - 1]; if (m) c.mission = { title: m.title, type: m.type, hint: missionHint(m) };
+    const tp = G.trainProgress(S); if (tp && S.queue[0]) c.train = { name: G.skills[S.queue[0].id].name, lvl: S.queue[0].lvl, left: G.fmtDur(tp.left) };
+    if (UI.mapSel && G.systems[UI.mapSel]) c.mapSel = G.systems[UI.mapSel].name; if (S.dest) c.dest = G.systems[S.dest.sys].name;
+    c.standText = Object.values(G.factions).map(f => ({ n: f.name, v: S.standings[f.id] || 0 })).sort((a, b) => b.v - a.v).slice(0, 3).map(x => `${x.n} ${x.v.toFixed(1)}`).join(' · ');
+    c.lv2 = G.levelReq[2]; c.lv3 = G.levelReq[3];
+    const r = step.info(c) || {};
+    return Object.assign({ title: r.title || C.name, idx: cs.step + 1, n: C.steps.length, course: id, prog: `${C.name} ${cs.step + 1} / ${C.steps.length}`, skip: true }, r, { title: r.title || C.name });
   }
   let tutScrollKey = '', tutKey = '';
   function renderTut() {
@@ -960,25 +1137,39 @@
     if (UI.story) { hi.hidden = ar.hidden = card.hidden = true; UI.tutTarget = UI.story.stage === 'syn' ? '#storyNext' : '#storyGo'; return; }
     const info = S && $('#modal').hidden ? tutInfo() : null;
     UI.tutTarget = null; const TOPY = SP && SP.targets.length + Object.keys(SP.locking).length ? '128px' : '64px';
-    if (!info) { hi.hidden = ar.hidden = card.hidden = true; tutKey = ''; $('#space').classList.remove('tutoring'); if (UI.ovAuto && MOB()) { $('#space').classList.add('ovmin'); UI.ovAuto = false; } return; }
+    if (!info) { hi.hidden = ar.hidden = card.hidden = true; tutKey = ''; $('#space').classList.remove('tutoring'); if (UI.ovAuto && MOB()) { setSheet('min', true); UI.ovAuto = false; } return; }
     let el = null; (info.t || []).some(q => { const x = document.querySelector(q); if (x && x.offsetParent !== null && !x.disabled) { el = x; UI.tutTarget = q; return true; } return false; });
-    const key = info.title + '|' + info.text + '|' + (info.next || '');
-    if (key !== tutKey) { tutKey = key; if (!UI.tutNoBeep) G.Art.beep('crew'); UI.tutNoBeep = false; card.innerHTML = `<div class="crewbox" ${MOB() ? 'data-a="tutToggle"' : ''}><div class="pt">${G.Art.portrait('xo')}</div><div style="flex:1"><div class="nm">${G.CREW.xo.rank} ${G.CREW.xo.name} · 보고</div><div class="tt">${esc(info.title)}</div><div class="tx">${esc(info.text)}</div>${MOB() ? `<span class="more">${UI.tutOpen ? '▴ 눌러서 줄이기' : '▾ 눌러서 자세히'}</span>` : ''}<div class="tb"><span class="prog">교육 과정 ${info.idx} / ${info.n}</span><span class="row">${info.next ? '' : '<button class="sm" data-a="tutSkip">건너뛰기</button>'}${info.next ? `<button class="pri big" id="tutNextBtn" data-a="tutNext">${esc(info.next)}</button>` : ''}</span></div></div></div>`; }
+    const hudFix = () => { if (!el && MOB() && SP && (info.t || []).some(q => q.indexOf('#hud') === 0)) { const sp = $('#space'); // 휴대폰: 가리키는 단추가 접힌 조작판 안에 있으면
+      if (sp.classList.contains('ovfull') && !UI.sheetDrag) { setSheet('half', true); UI.ovAuto = true; }
+      else if (sp.classList.contains('hudmin')) { const hb = $('#mobHud'); if (hb && hb.offsetParent !== null) { el = hb; UI.tutTarget = '#mobHud'; } } } };
+    hudFix();
+    const base = info.title + '|' + info.text + '|' + (info.next || '');
+    if (base !== UI.tutBase) { UI.tutBase = base; UI.tutStepT = performance.now(); }
+    const hintOn = !!info.hint && performance.now() - (UI.tutStepT || 0) > (UI.hintDelay || 15000); // 같은 단계에서 오래 멈춰 있으면 힌트
+    const key = base + (hintOn ? '|h' : '');
+    const skipBtn = (info.skip ? info.next !== '마치기' : (!info.next || (info.idx >= 1 && info.idx < info.n))) ? `<button class="sm" data-a="tutSkip">${info.course ? '과정 그만두기' : '건너뛰기'}</button>` : '';
+    if (key !== tutKey) { tutKey = key; if (!UI.tutNoBeep) G.Art.beep('crew'); UI.tutNoBeep = false; card.innerHTML = `<div class="crewbox" ${MOB() ? 'data-a="tutToggle"' : ''}><div class="pt">${G.Art.portrait('xo')}</div><div style="flex:1"><div class="nm">${G.CREW.xo.rank} ${G.CREW.xo.name} · 보고</div><div class="tt">${esc(info.title)}</div><div class="tx">${esc(info.text)}</div>${MOB() ? `<span class="more">${UI.tutOpen ? '▴ 눌러서 줄이기' : '▾ 눌러서 자세히'}</span>` : ''}${hintOn ? `<div class="hint"><b>힌트</b>${esc(info.hint)}</div>` : ''}<div class="tb"><span class="prog">${esc(info.prog || `기본 과정 ${info.idx + 1} / ${info.n + 1}`)}</span><span class="row">${skipBtn}${info.next ? `<button class="pri big" id="tutNextBtn" data-a="tutNext">${esc(info.next)}</button>` : ''}</span></div></div></div>`; }
     card.hidden = false;
     const mob = MOB(); $('#space').classList.toggle('tutoring', true);
     if (mob && SP) { const sp = $('#space'); const qs = info.t || [];
       const needOpen = sp.classList.contains('ovmin') && !info.next && qs.some(q => { const x = document.querySelector(q); return x && x.closest('#overview') && x.offsetParent === null; });
       const inOv = qs.some(q => { const x = document.querySelector(q); return x && x.closest('#overview') && !x.closest('.ovsum'); });
-      if (needOpen) { sp.classList.remove('ovmin'); UI.ovAuto = true; renderOverview(); }
-      else if (UI.ovAuto && !inOv && !sp.classList.contains('ovmin')) { sp.classList.add('ovmin'); UI.ovAuto = false; renderOverview(); } }
-    card.classList.toggle('mini', mob && !UI.tutOpen);
+      if (needOpen && !UI.sheetDrag) { setSheet('half', true); UI.ovAuto = true; }
+      else if (UI.ovAuto && !inOv && !sp.classList.contains('ovmin') && !UI.sheetDrag) { setSheet('min', true); UI.ovAuto = false; } }
+    card.classList.toggle('mini', mob && !UI.tutOpen && !hintOn && (!info.next || !!(info.course && SP))); // 휴대폰 우주: 과정 안내는 한 줄로(눌러서 펼침) — 전투 중에도 우주가 넓게
     if (mob && el && el.scrollIntoView && tutScrollKey !== key + UI.tutTarget) { tutScrollKey = key + UI.tutTarget; try { el.scrollIntoView({ block: 'center', inline: 'center' }); } catch (e) { /* 무시 */ } }
-    if (mob && SP) { el = null; UI.tutTarget = null; (info.t || []).some(q => { const x = document.querySelector(q); if (x && x.offsetParent !== null && !x.disabled) { el = x; UI.tutTarget = q; return true; } return false; }); }
-    if (info.next) { el = $('#tutNextBtn'); UI.tutTarget = '#tutNextBtn'; }
+    if (mob && SP) { el = null; UI.tutTarget = null; (info.t || []).some(q => { const x = document.querySelector(q); if (x && x.offsetParent !== null && !x.disabled) { el = x; UI.tutTarget = q; return true; } return false; }); hudFix(); }
+    let hlEl = null; if (info.hl && (info.next || !el)) { const x = document.querySelector(info.hl); if (x && x.offsetParent !== null || (x && getComputedStyle(x).position === 'fixed')) hlEl = x; }
+    if (info.next) { el = hlEl || $('#tutNextBtn'); UI.tutTarget = '#tutNextBtn'; const nb = $('#tutNextBtn'); if (nb) nb.classList.toggle('pulse', !!hlEl); }
+    if (!info.next && hlEl) el = hlEl;
+    hi.classList.toggle('soft', !!hlEl);
     if (!el) { hi.hidden = ar.hidden = true; card.style.top = mob ? ($('#top').getBoundingClientRect().bottom + 4) + 'px' : TOPY; card.style.bottom = ''; return; }
     const r = el.getBoundingClientRect(); const pad = 6;
     Object.assign(hi.style, { left: r.left - pad + 'px', top: r.top - pad + 'px', width: r.width + pad * 2 + 'px', height: r.height + pad * 2 + 'px' }); hi.hidden = false;
-    if (info.next) { ar.hidden = true; card.style.top = '30%'; card.style.bottom = ''; return; }
+    if (hlEl) { ar.hidden = true; if (!info.next) UI.tutTarget = null; const midY = r.top + r.height / 2; const topH = mob ? $('#top').getBoundingClientRect().bottom + 6 : 64;
+      if (r.height > innerHeight * 0.55) { card.style.top = ''; card.style.bottom = mob ? '12px' : '24px'; } else if (midY > innerHeight * 0.5) { card.style.top = topH + 'px'; card.style.bottom = ''; } else { card.style.top = ''; card.style.bottom = (mob ? Math.max(12, innerHeight - (r.top - 8) > innerHeight - 40 ? 12 : 12) : 24) + 'px'; }
+      return; }
+    if (info.next) { ar.hidden = true; if (mob && SP) { card.style.top = ($('#top').getBoundingClientRect().bottom + 4) + 'px'; } else card.style.top = '30%'; card.style.bottom = ''; return; }
     const side = !mob && r.right < 200; const up = !side && r.top < 90;
     ar.innerHTML = G.Art.arrow(side ? 'side' : up ? 'up' : 'down'); ar.className = side ? 'side' : up ? 'up' : '';
     Object.assign(ar.style, side ? { left: r.right + 12 + 'px', top: r.top + r.height / 2 - 17 + 'px' } : { left: r.left + r.width / 2 - 14 + 'px', top: (up ? r.bottom + 10 : r.top - 46) + 'px' }); ar.hidden = false;
@@ -993,6 +1184,12 @@
   function tutTick() {
     if (!S || !S.tut) return;
     if (!S.tut.done) { const b = S.tut.step; G.tutAdvance(S, SP); if (S.tut.step !== b) afterTut(); }
+    else {
+      // v10: 활동별 교육 과정 — 처음 적을 만나면 전투, 처음 임무를 마치면 세력 과정을 자동으로
+      if (!S.course && !UI.story) { if (SP && !SP.warp && G.courseHelpers.hostiles(SP).length && G.courseAuto(S, 'combat', UI)) { UI.crew = null; $('#crew').hidden = true; tutKey = ''; }
+        else if (S.loc.docked && (S.stats.missions || 0) >= 1 && G.courseAuto(S, 'faction', UI)) tutKey = ''; }
+      if (G.courseActive(S)) { const id = S.course, b = S.courses[id].step; G.courseAdvance(S, SP, UI); if (S.course === id && S.courses[id].step !== b) afterTut(); }
+    }
     renderTut(); if (S) { crewTick(); renderObjective(); }
   }
   let banQ = [], banT = null;
