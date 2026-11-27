@@ -250,7 +250,7 @@
     if (!['npc', 'roid', 'can', 'wreck'].includes(e.kind)) return { ok: false, msg: '조준할 수 없는 대상입니다.' };
     if (sp.targets.includes(id) || sp.locking[id] != null) return { ok: false, msg: '이미 조준 중' };
     if (sp.targets.length + Object.keys(sp.locking).length >= sp.pl.st.maxT) return { ok: false, msg: `최대 표적 수 ${sp.pl.st.maxT} (표적 운용 스킬로 증가)` };
-    if (G.dist(sp.pl, e) > sp.pl.st.lock) return { ok: false, msg: `조준 거리 ${G.fmt(sp.pl.st.lock / 1000)}km 밖입니다.` };
+    if (G.dist(sp.pl, e) > sp.pl.st.lock) return { ok: false, msg: `조준 거리 ${G.fmtRange(sp.pl.st.lock)} 밖입니다.` };
     sp.locking[id] = G.lockTime(sp.pl.st.scanRes, e.sig || 200);
     return { ok: true };
   };
@@ -388,7 +388,7 @@
     if (m.tgt) { e = G.byId(sp, m.tgt); if (!e || !sp.targets.includes(m.tgt)) { m.on = false; m.tgt = null; return; } }
     const d = e ? G.dist(pl, e) : 0;
     const rangeOf = A.kind === 'turret' ? A.opt + A.fo * 3 : A.range;
-    if (e && rangeOf && d > rangeOf + (e.r || 0)) { m.cd = 0.5; if (!m.warned) { m.warned = true; G.say(sp, `${M.name}: 사거리(${G.fmt(rangeOf / 1000)}km) 밖 — 가까이 가면 자동으로 발사합니다.`, 'warn'); } return; }
+    if (e && rangeOf && d > rangeOf + (e.r || 0)) { m.cd = 0.5; if (!m.warned) { m.warned = true; G.say(sp, `${M.name}: 사거리(${G.fmtRange(rangeOf)}) 밖 — 가까이 가면 자동으로 발사합니다.`, 'warn'); } return; }
     m.warned = false;
     pl.cap -= A.cap || 0; m.cd = A.cycle || 1;
     const st = pl.st;

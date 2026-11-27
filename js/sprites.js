@@ -19,6 +19,8 @@
   };
   Art.drawShip = (c, x, y, a, s, kind, t, alpha, hull) => {
     hull = hull || (kind === 'player' ? Art.hull : null);
+    // 내 함선·같은 함급(hull이 있는 함선)은 정비고 3D 모델을 위에서 본 스프라이트로. 실패하면 기존 그림.
+    if (hull && G.Ship3D && G.Ship3D.KIND[hull] && G.Ship3D.drawSprite && G.Ship3D.drawSprite(c, x, y, a, s * (HULL_LEN[hull] || 1), hull, alpha)) return;
     const im = IMG[Art.spriteFor(kind, s, hull)]; if (!im) return old.ship(c, x, y, a, s, kind, t, alpha);
     const L = 52 * s * (kind === 'player' ? (HULL_LEN[hull] || 1) : 1); const H = L * im.height / im.width;
     c.save(); c.translate(x, y); c.rotate(a); c.globalAlpha = alpha == null ? 1 : alpha;

@@ -14,6 +14,24 @@
   G.fmt = (n) => Math.round(n).toLocaleString('ko-KR');
   G.fmtCR = (n) => G.fmt(n) + ' LM';
   G.fmtDur = (s) => { s = Math.max(0, Math.ceil(s)); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), x = s % 60; return h ? `${h}시간 ${m}분` : m ? `${m}분 ${x}초` : `${x}초`; };
+  // 거리 표기: 근접(m·km)과 성계(AU)를 구분해 씀. 내부 단위(로컬 m, 천체 AU 좌표)와 규칙(워프·사거리)은 그대로.
+  G.AU_KM = 149597870.7;
+  G.fmtRange = (m) => {
+    m = +m || 0; const a = Math.abs(m);
+    if (a < 1000) return Math.round(m).toLocaleString('ko-KR') + ' m';
+    const k = m / 1000;
+    if (a < 1e9) return (a < 100000 ? k.toFixed(1) : Math.round(k).toLocaleString('ko-KR')) + ' km';
+    const au = m / 1000 / G.AU_KM;
+    return (Math.abs(au) < 100 ? au.toFixed(1) : au.toFixed(0)) + ' AU';
+  };
+  G.fmtAU = (au) => {
+    au = +au || 0; const a = Math.abs(au);
+    if (a < 0.01) return G.fmtRange(au * G.AU_KM * 1000);
+    if (a < 0.1) return au.toFixed(2) + ' AU';
+    if (a < 100) return au.toFixed(1) + ' AU';
+    return au.toFixed(0) + ' AU';
+  };
+
   G.uid = () => Math.random().toString(36).slice(2, 9);
 
   // ---- 새 게임 ----

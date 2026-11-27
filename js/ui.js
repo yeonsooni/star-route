@@ -16,7 +16,7 @@
   const res = (r) => { if (r && r.msg) toast(r.msg, !r.ok); return r; };
   const secBadge = (sec) => `<span class="sec" style="--sc:${G.secColor(sec)}">${G.secText(sec)}</span>`;
   const bar = (v, max, cls = '') => `<div class="bar ${cls}"><i style="width:${G.clamp(max > 0 ? v / max * 100 : 0, 0, 100)}%"></i></div>`;
-  const km = (m) => m >= 1000 ? (m / 1000).toFixed(m >= 100000 ? 0 : 1) + ' km' : Math.round(m) + ' m';
+  const km = (m) => G.fmtRange(m);
   const pips = (l) => '■'.repeat(l) + '<span class="dim">' + '□'.repeat(5 - l) + '</span>';
   const facName = (f) => `<span style="color:${G.factions[f].color}">${G.factions[f].name}</span>`;
   G.onLog = () => { if (SP) renderSlog(); };
@@ -44,11 +44,31 @@
 
   // ---- 정박 화면 ----
   const PAGES = [['station', '기지'], ['market', '교역소'], ['hangar', '함선 정비고'], ['fitting', '장착'], ['industry', '산업'], ['agents', '임무 본부'], ['skills', '스킬'], ['map', '항성도'], ['log', '항해일지'], ['settings', '설정']];
+  // 메뉴 라인 아이콘 (도면/HUD 느낌, 1.5px, 외부 라이브러리 없음)
+  const ICO_PATH = {
+    station: '<circle cx="12" cy="12" r="7.5"/><circle cx="12" cy="12" r="2"/><path d="M12 4.5v3.5M12 16v3.5M4.5 12h3.5M16 12h3.5M7 7l2.2 2.2M14.8 14.8L17 17M17 7l-2.2 2.2M7 17l2.2-2.2"/>',
+    market: '<path d="M4 18h16M6 18V9l6-4 6 4v9"/><path d="M10 18v-5h4v5"/><path d="M9 11h6"/>',
+    hangar: '<path d="M3 19h18M5 19V10l7-5 7 5v9"/><path d="M9 19v-6h6v6"/><path d="M8.5 12.5h7"/>',
+    fitting: '<rect x="4" y="4" width="6.5" height="6.5"/><rect x="13.5" y="4" width="6.5" height="6.5"/><rect x="4" y="13.5" width="6.5" height="6.5"/><path d="M15 16.5h5M17.5 14v5"/>',
+    industry: '<path d="M3 19h18M6 19V11h3v8M11 19V8h4v11M17 19v-6h3v6"/><path d="M11 8l4-3v3"/>',
+    agents: '<rect x="6" y="3.5" width="12" height="17" rx="0"/><path d="M9 8h6M9 11.5h6M9 15h4"/><path d="M16.5 17.5l1.5 1.5 3-3"/>',
+    skills: '<circle cx="7" cy="16" r="2"/><circle cx="12" cy="7" r="2"/><circle cx="18" cy="15" r="2"/><path d="M8.6 14.2L10.6 8.8M13.7 8.4L16.5 13.4"/>',
+    map: '<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3.5"/><path d="M12 4v3M12 17v3M4 12h3M17 12h3"/><path d="M12 10.5l1.2 3h-2.4z"/>',
+    log: '<rect x="5" y="3.5" width="14" height="17"/><path d="M8 8h8M8 11.5h8M8 15h5"/>',
+    settings: '<path d="M5 8h14M5 16h14"/><rect x="8" y="6" width="4" height="4"/><rect x="14" y="14" width="4" height="4"/>',
+    undock: '<path d="M4 16l5-2 2-5 3 3 5-1-3 5-1 5-3-3-5 2 2-4z"/><path d="M15 5h5v5M20 5l-5 5"/>',
+    status: '<path d="M4 16l4-4 3 2 5-7"/><circle cx="16" cy="7" r="1.4"/><path d="M4 19h16"/>',
+    tune: '<circle cx="12" cy="12" r="3"/><path d="M12 5.5V3M12 21v-2.5M5.5 12H3M21 12h-2.5M7.1 7.1L5.3 5.3M18.7 18.7l-1.8-1.8M16.9 7.1l1.8-1.8M5.3 18.7l1.8-1.8"/>',
+    store: '<path d="M4 8h16l-1 12H5L4 8zM4 8l2-4h12l2 4M9 12h6"/>',
+    buy: '<path d="M7 7h13l-1.5 9H9L7 7z"/><path d="M7 7L5.5 3H3"/><circle cx="10" cy="19" r="1.4"/><circle cx="17" cy="19" r="1.4"/>'
+  };
+  const ico = (k) => `<svg class="ico" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="square" stroke-linejoin="miter">${ICO_PATH[k] || ''}</g></svg>`;
+
   const PCODE = { station: '10-31', market: '22-07', hangar: '23-64', fitting: '31-88', industry: '44-12', agents: '51-40', skills: '62-19', map: '70-05', log: '81-33', settings: '99-02' };
   function renderSide() {
     if (!G.isUnlocked(S, UI.page)) UI.page = 'station';
     const open = PAGES.filter(([k]) => G.isUnlocked(S, k)); const locked = PAGES.length - open.length;
-    $('#side').innerHTML = open.map(([k, n]) => `<button class="${UI.page === k ? 'on' : ''} ${UI.newF && UI.newF[k] ? 'newf' : ''}" data-a="page" data-p="${k}"><span class="code">${PCODE[k]}</span><span>${n}${UI.newF && UI.newF[k] ? ' <span class="nbadge">새로</span>' : ''}</span></button>`).join('') + (locked ? `<div class="lockn">잠긴 메뉴 ${locked}개 · 곧 열려요</div>` : '') + `<div class="fill"></div><button class="undock big" data-a="undock">출항</button>`;
+    $('#side').innerHTML = open.map(([k, n]) => `<button class="${UI.page === k ? 'on' : ''} ${UI.newF && UI.newF[k] ? 'newf' : ''}" data-a="page" data-p="${k}"><span class="code">${PCODE[k]}</span><span class="ilab">${ico(k)}<span class="ilabel">${n}${UI.newF && UI.newF[k] ? ' <span class="nbadge">새로</span>' : ''}</span></span></button>`).join('') + (locked ? `<div class="lockn">잠긴 메뉴 ${locked}개 · 곧 열려요</div>` : '') + `<div class="fill"></div><button class="undock big" data-a="undock">${ico('undock')}<span class="ilabel">출항</span></button>`;
   }
   function renderMain() {
     const f = { station: pStation, market: pMarket, hangar: pHangar, fitting: pFitting, industry: pIndustry, agents: pAgents, skills: pSkills, map: pMap, log: pLog, settings: pSettings }[UI.page];
@@ -216,7 +236,7 @@
     <div class="card yard3d" data-code="DRY"><div class="ship3d" data-ship="${view.type}"></div>
       <div class="yov"><div class="sub small">${esc(view.tag)}</div><div class="nm">${esc(view.name)}</div><div class="small sub">${T.cls} · 슬롯 ${T.slots.join('/')}</div></div>
       <div class="yhint small">${MOB() ? '끌어서 돌리기 · 두 손가락으로 확대' : '끌어서 돌리기 · 휠로 확대'}</div></div>
-    <div class="tabs ytabs">${tabs.map(([k, n]) => `<button class="${tab === k ? 'on' : ''}" data-a="yardTab" data-t="${k}">${n}</button>`).join('')}</div>
+    <div class="tabs ytabs">${tabs.map(([k, n]) => `<button class="${tab === k ? 'on' : ''}" data-a="yardTab" data-t="${k}">${ico(k)}<span>${n}</span></button>`).join('')}</div>
     <div class="yardbody">${body}</div>`;
   }
   function yardStatus() {
@@ -513,7 +533,7 @@
       const list = G.warpables(SP);
       const route = S.dest && S.dest.sys !== SP.sys ? G.route(SP.sys, S.dest.sys, S.dest.safe) : null;
       html += `<table>${list.map(c => { const au = Math.hypot(c.pos.x - hp.x, c.pos.y - hp.y); const isHere = c.id === SP.cel; const next = route && c.kind === 'gate' && c.ref === route[1];
-        return `<tr class="${isHere ? 'sel' : ''}"><td>${next ? '<span class="warn">▶</span> ' : ''}${esc(c.name)}<div class="small sub">${celKind[c.kind] || ''}${c.kind === 'anom' ? ' · ' + G.npcTiers[c.tier].cls + '급' : ''}</div></td><td class="r small">${isHere ? '현재 위치' : au.toFixed(1) + ' AU'}</td><td class="r">${isHere ? '' : `<button class="sm ${c.kind === 'belt' || c.kind === 'station' ? 'pri' : ''}" data-a="warp" data-id="${c.id}" data-kind="${c.kind}">워프</button>`}</td></tr>`; }).join('')}</table>`;
+        return `<tr class="${isHere ? 'sel' : ''}"><td>${next ? '<span class="warn">▶</span> ' : ''}${esc(c.name)}<div class="small sub">${celKind[c.kind] || ''}${c.kind === 'anom' ? ' · ' + G.npcTiers[c.tier].cls + '급' : ''}</div></td><td class="r small">${isHere ? '현재 위치' : G.fmtAU(au)}</td><td class="r">${isHere ? '' : `<button class="sm ${c.kind === 'belt' || c.kind === 'station' ? 'pri' : ''}" data-a="warp" data-id="${c.id}" data-kind="${c.kind}">워프</button>`}</td></tr>`; }).join('')}</table>`;
     }
     html += '</div>';
     const e = UI.sel ? G.byId(SP, UI.sel) : null;
@@ -636,13 +656,18 @@
     c.restore();
     // 세계(천체·물체)는 카메라 변환 안에서 그림: 배 위치(pcx,pcy)를 중심으로 회전 + 진행 방향으로 살짝 눌러 원근감
     c.save(); if (k > 0.001) { c.translate(pcx, pcy); c.scale(1, 1 - 0.3 * k); c.rotate(rot); c.translate(-cx, -cy); }
-    // 성계의 항성과 먼 행성 (현재 위치에서 본 방향)
+    // 성계의 항성과 먼 행성: 근접 영역(km 눈금) 바깥의 성계 영역(AU, 로그)에 두고 실제 거리로 표기
     const here = G.celInfo(SP, SP.cel); const hp = here && here.pos ? here.pos : { x: 6, y: 4 };
-    const star = G.starOf(SP.sys); const dAU = Math.max(0.6, Math.hypot(hp.x, hp.y)); const sa = Math.atan2(-hp.y, -hp.x);
-    const sR = G.clamp(150 / dAU, 14, 95) * star.size; const sx = cx + Math.cos(sa) * Math.min(W, H) * 0.62, sy = cy + Math.sin(sa) * Math.min(W, H) * 0.5;
-    if (!warping) G.Art.drawStar(c, sx, sy, sR, star, T);
-    if (!warping) { const pls = G.celestials(SP.sys).filter(x => x.kind === 'planet' && x.id !== SP.cel); const near = pls.map(p => ({ p, d: Math.hypot(p.pos.x - hp.x, p.pos.y - hp.y) })).sort((a, b) => a.d - b.d)[0];
-      if (near) { const pa = Math.atan2(near.p.pos.y - hp.y, near.p.pos.x - hp.x); const pR = G.clamp(60 / near.d, 5, 46); const px = cx + Math.cos(pa) * Math.min(W, H) * 0.42, py = cy + Math.sin(pa) * Math.min(W, H) * 0.36; G.Art.drawPlanet(c, px, py, pR, near.p.ptype, SP.sys * 10 + near.p.ref, Math.atan2(sy - py, sx - px)); } }
+    const star = G.starOf(SP.sys); const dAU = Math.max(0.05, Math.hypot(hp.x, hp.y)); const sa = Math.atan2(-hp.y, -hp.x);
+    const localPx = Math.min(40000 * z, Math.min(W, H) * 0.34);
+    const edgePx = Math.min(W, H) * 0.48;
+    const farR = (au) => { const t = Math.log(1 + Math.max(0.05, au)) / Math.log(1 + 20); return localPx + 44 + Math.max(8, edgePx - localPx - 44) * G.clamp(t, 0.15, 1); };
+    const fitL = (x, y, pad) => ({ x: G.clamp(x, pad, W - pad), y: G.clamp(y, pad + 10, H - pad) });
+    const sR = G.clamp(18 / Math.sqrt(dAU), 9, 28) * star.size; const sx = cx + Math.cos(sa) * farR(dAU), sy = cy + Math.sin(sa) * farR(dAU);
+    if (!warping) { G.Art.drawStar(c, sx, sy, sR, star, T); const sl = fitL(sx, sy + sR + 13, 40); c.font = '10px ' + FONT; c.fillStyle = 'rgba(232,201,160,0.9)'; c.textAlign = 'center'; c.fillText(`${star.name} · ${G.fmtAU(dAU)}`, sl.x, sl.y); }
+    if (!warping) { const pls = G.celestials(SP.sys).filter(x => x.kind === 'planet' && x.id !== SP.cel).map(p => ({ p, d: Math.hypot(p.pos.x - hp.x, p.pos.y - hp.y) })).sort((a, b) => a.d - b.d);
+      pls.slice(0, 2).forEach((near, i) => { const pa = Math.atan2(near.p.pos.y - hp.y, near.p.pos.x - hp.x); const pR = G.clamp(14 / Math.sqrt(Math.max(0.2, near.d)), 5, 18); const px = cx + Math.cos(pa) * farR(near.d), py = cy + Math.sin(pa) * farR(near.d); G.Art.drawPlanet(c, px, py, pR, near.p.ptype, SP.sys * 10 + near.p.ref, Math.atan2(sy - py, sx - px)); const plb = fitL(px, py + pR + 13, 46); c.font = '10px ' + FONT; c.fillStyle = 'rgba(232,201,160,0.88)'; c.textAlign = 'center'; c.fillText(`${near.p.name} · ${G.fmtAU(near.d)}`, plb.x, plb.y); });
+      UI.spaceScale = { starAU: dAU, starLabel: G.fmtAU(dAU), planets: pls.slice(0, 2).map(n => ({ name: n.p.name, au: n.d, label: G.fmtAU(n.d) })), localPx }; }
     const wo = $('#warpov');
     const wtxt = SP.docking ? `도킹 진행<div>기지 출입문이 열립니다</div>` : SP.undocking ? `출항<div>기지에서 빠져나가는 중</div>`
       : SP.warp ? (SP.warp.phase === 'align' ? `워프 준비 ${Math.max(0, SP.warp.align - SP.warp.t).toFixed(1)}<div>→ ${esc(SP.warp.name)}</div>` : `워프 항행<div>→ ${esc(SP.warp.name)}</div>`)
@@ -662,9 +687,11 @@
       return;
     }
     const X = (x) => cx + (x - pl.x) * z, Y = (y) => cy + (y - pl.y) * z;
-    // 거리 눈금
-    c.strokeStyle = 'rgba(201,154,214,0.10)'; c.lineWidth = 1; c.font = '10px ' + FONT; c.fillStyle = 'rgba(201,154,214,0.45)'; c.textAlign = 'left';
-    [5000, 10000, 20000, 40000].forEach(r => { if (r * z > 30 && r * z < Math.max(W, H)) { c.beginPath(); c.arc(cx, cy, r * z, 0, 7); c.stroke(); c.fillText(km(r), cx + r * z + 3, cy - 2); } });
+    // 거리 눈금: 근접 영역은 km. 그 바깥(localPx)부터는 성계 영역(AU).
+    c.strokeStyle = 'rgba(201,154,214,0.10)'; c.lineWidth = 1; c.font = '10px ' + FONT; c.fillStyle = 'rgba(201,154,214,0.5)'; c.textAlign = 'left';
+    let ringN = 0;
+    [5000, 10000, 20000, 40000].forEach(r => { if (r * z > 30 && r * z < Math.max(W, H) && r * z < localPx + 8) { c.beginPath(); c.arc(cx, cy, r * z, 0, 7); c.stroke(); c.fillText(km(r), cx + r * z + 3, cy - 2); if (!ringN) { c.fillStyle = 'rgba(201,154,214,0.35)'; c.fillText('근접', cx + r * z + 3, cy + 11); c.fillStyle = 'rgba(201,154,214,0.5)'; } ringN++; } });
+    if (localPx > 40 && localPx < Math.max(W, H) * 0.7) { c.strokeStyle = 'rgba(201,154,214,0.16)'; c.setLineDash([3, 6]); c.beginPath(); c.arc(cx, cy, localPx, 0, 7); c.stroke(); c.setLineDash([]); c.fillStyle = 'rgba(201,154,214,0.45)'; c.textAlign = 'center'; c.fillText('성계 영역', cx, cy + localPx + 12); c.textAlign = 'left'; }
     const w = SP.mods.find(m => ['turret', 'missile', 'mine'].includes(G.modules[m.id].act.kind));
     if (w) { const A = G.modules[w.id].act; const r = A.kind === 'turret' ? A.opt + A.fo : A.range; c.strokeStyle = 'rgba(255,154,74,0.22)'; c.setLineDash([2, 8]); c.beginPath(); c.arc(cx, cy, r * z, 0, 7); c.stroke(); c.setLineDash([]); }
     const lightA = (x, y) => Math.atan2(sy - y, sx - x);
@@ -715,7 +742,7 @@
     else { c.fillStyle = '#e8c9a0'; c.beginPath(); c.ellipse(cx, cy, 5, 3, a, 0, 7); c.fill(); }
     if (Math.hypot(pl.vx, pl.vy) > 40 && !SP.docking && k < 0.05) { c.strokeStyle = 'rgba(127,184,255,0.35)'; c.lineWidth = 2; c.beginPath(); c.moveTo(cx - Math.cos(a) * 24 * sc, cy - Math.sin(a) * 24 * sc); c.lineTo(cx - Math.cos(a) * 44 * sc, cy - Math.sin(a) * 44 * sc); c.stroke(); }
     c.font = '11px ' + FONT; c.textAlign = 'left'; c.fillStyle = '#7a6a58';
-    if (!mob) c.fillText(`눈금 ${km(100 / z)} / 100px · 휠 확대 · 빈 곳 더블클릭 이동`, 12, H - 168);
+    if (!mob) c.fillText(`근접 눈금 ${km(100 / z)} / 100px · 먼 천체는 AU · 휠 확대 · 빈 곳 더블클릭 이동`, 12, H - 168);
     if (k > 0.02) { cv._hit = () => null; cv._toWorld = null; return; }
     cv._hit = (mx, my) => { let best = null; SP.ents.forEach(e => { if (e.kind === 'planet') return; const d = (X(e.x) - mx) ** 2 + (Y(e.y) - my) ** 2; const rr = Math.max(mob ? 28 : 16, (e.r || 0) * z); if (d < rr * rr && (!best || d < best.d)) best = { id: e.id, d }; }); return best && best.id; };
     cv._toWorld = (mx, my) => ({ x: pl.x + (mx - cx) / z, y: pl.y + (my - cy) / z });
@@ -995,6 +1022,8 @@
     const star = G.starOf(SP.sys); G.Art.drawStar(c, cx, cy, 22 * star.size, star, performance.now() / 1000);
     c.strokeStyle = 'rgba(201,154,214,0.22)'; c.lineWidth = 1;
     list.forEach(o => { const r = Math.hypot(o.pos.x, o.pos.y) * k; c.beginPath(); c.arc(cx, cy, r, 0, 7); c.stroke(); });
+    c.font = '10px ' + FONT; c.fillStyle = 'rgba(201,154,214,0.55)'; c.textAlign = 'left';
+    [1, 2, 5, 10, 15, 20].forEach(au => { if (au <= maxR + 0.2) { const r = au * k; if (r > 18 && r < Math.min(W, H) / 2 - 8) { c.beginPath(); c.arc(cx, cy, r, 0, 7); c.strokeStyle = 'rgba(201,154,214,0.14)'; c.stroke(); c.fillText(G.fmtAU(au), cx + r + 3, cy - 2); } } });
     const vis = S.visited || {}; const hits = [];
     list.forEach(o => { const x = cx + o.pos.x * k, y = cy + o.pos.y * k; hits.push({ id: o.id, x, y });
       if (o.kind === 'planet') { const known = vis[SP.sys + '|' + o.id]; G.Art.drawPlanet(c, x, y, 13 + o.ref * 2, o.ptype, SP.sys * 10 + o.ref, Math.atan2(cy - y, cx - x));

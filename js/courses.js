@@ -5,7 +5,7 @@
 (function (G) {
   'use strict';
   const fmt = (x) => G.fmt(x), cr = (x) => G.fmtCR(x);
-  const km = (m) => (m >= 1000 ? (m / 1000).toFixed(m >= 10000 ? 0 : 1) + 'km' : Math.round(m) + 'm');
+  const km = (m) => G.fmtRange(m);
   const hostiles = (sp) => (sp ? sp.ents.filter(e => e.kind === 'npc' && e.hostile) : []);
   const tradeOwned = (s) => { const sh = G.activeShip(s); let n = 0; Object.values(s.hangars || {}).forEach(h => Object.entries(h).forEach(([k, q]) => { if (G.items[k] && G.items[k].cat === 'trade') n += q; }));
     if (sh) Object.entries(sh.cargo).forEach(([k, q]) => { if (G.items[k] && G.items[k].cat === 'trade') n += q; }); return n; };

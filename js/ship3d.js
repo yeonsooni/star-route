@@ -211,12 +211,75 @@ vec3 c=vk>0.5?vec3(1.0,0.82,0.55):vec3(0.62,0.78,1.0);gl_FragColor=vec4(c*a,a);}
     cv.addEventListener('wheel', (ev) => { ev.preventDefault(); V.zoom = Math.max(0.6, Math.min(2.4, V.zoom * (ev.deltaY > 0 ? 0.9 : 1.1))); V.idleAt = performance.now(); }, { passive: false });
     cv.style.touchAction = 'none';
   }
+  // ---------- 우주 화면용 탑뷰 스프라이트 (살짝 기울인 위에서 내려다본 모습, 각도마다 캐시) ----------
+  const BAKE_N = 16, BAKE_S = 128;
+  const B = { ok: null, cv: null, gl: null, buf: {}, sheets: {} };
+  function bakeInit() {
+    if (B.ok !== null) return B.ok;
+    if (typeof document === 'undefined' || (typeof window !== 'undefined' && window.__no3d)) { B.ok = false; return false; }
+    const cv = B.cv = document.createElement('canvas'); cv.width = cv.height = BAKE_S;
+    let gl = null; try { gl = cv.getContext('webgl', { antialias: true, alpha: true, premultipliedAlpha: false, preserveDrawingBuffer: true }) || cv.getContext('experimental-webgl'); } catch (e) { gl = null; }
+    if (!gl) { B.ok = false; return false; }
+    try { B.P1 = prog(gl, VS, FS); B.P2 = prog(gl, GVS, GFS); } catch (e) { B.ok = false; return false; }
+    B.gl = gl; B.ok = true; return true;
+  }
+  function bakeUpload(type) {
+    if (B.buf[type]) return B.buf[type];
+    const gl = B.gl, md = model(type), m = md.m;
+    const mk = (arr) => { const b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(arr), gl.STATIC_DRAW); return b; };
+    const gp = [], gr = [], gk = []; m.glow.forEach(g => { gp.push(g[0], g[1], g[2]); gr.push(g[3]); gk.push(g[4] ? 1 : 0); });
+    return (B.buf[type] = { p: mk(m.p), n: mk(m.n), c: mk(m.c), e: mk(m.e), gp: mk(gp), gr: mk(gr), gk: mk(gk), count: m.p.length / 3, gcount: m.glow.length, R: md.R });
+  }
+  function bakeFrame(type, yaw) {
+    const gl = B.gl, cv = B.cv, u = bakeUpload(type);
+    gl.viewport(0, 0, BAKE_S, BAKE_S); gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    const fov = 0.52, dist = (u.R / Math.sin(fov / 2)) * 1.22;
+    const P = M4.persp(fov, 1, 0.05, 50);
+    // 위에서 살짝 기울여 봄. yaw=π/2 일 때 뱃머리가 화면 오른쪽(+X) — 기존 2D 스프라이트와 같음.
+    const tilt = 0.36, Mx = M4.mul(M4.tr(0, 0, -dist), M4.mul(M4.rx(-Math.PI / 2 + tilt), M4.ry(Math.PI / 2 + yaw)));
+    gl.enable(gl.DEPTH_TEST); gl.disable(gl.BLEND); gl.disable(gl.CULL_FACE);
+    const attrB = (p, name, buf, size) => { const l = gl.getAttribLocation(p, name); if (l < 0) return; gl.bindBuffer(gl.ARRAY_BUFFER, buf); gl.enableVertexAttribArray(l); gl.vertexAttribPointer(l, size, gl.FLOAT, false, 0, 0); };
+    gl.useProgram(B.P1); attrB(B.P1, 'p', u.p, 3); attrB(B.P1, 'n', u.n, 3); attrB(B.P1, 'c', u.c, 3); attrB(B.P1, 'e', u.e, 1);
+    gl.uniformMatrix4fv(gl.getUniformLocation(B.P1, 'M'), false, new Float32Array(Mx)); gl.uniformMatrix4fv(gl.getUniformLocation(B.P1, 'P'), false, new Float32Array(P));
+    gl.drawArrays(gl.TRIANGLES, 0, u.count);
+    gl.useProgram(B.P2); gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE); gl.depthMask(false);
+    attrB(B.P2, 'p', u.gp, 3); attrB(B.P2, 'r', u.gr, 1); attrB(B.P2, 'k', u.gk, 1);
+    gl.uniformMatrix4fv(gl.getUniformLocation(B.P2, 'M'), false, new Float32Array(Mx)); gl.uniformMatrix4fv(gl.getUniformLocation(B.P2, 'P'), false, new Float32Array(P));
+    gl.uniform1f(gl.getUniformLocation(B.P2, 'S'), BAKE_S * 4.2); gl.uniform1f(gl.getUniformLocation(B.P2, 'T'), 0.4);
+    gl.drawArrays(gl.POINTS, 0, u.gcount); gl.depthMask(true);
+    const out = document.createElement('canvas'); out.width = out.height = BAKE_S;
+    out.getContext('2d').drawImage(cv, 0, 0);
+    return out;
+  }
+  function spriteSheet(type) {
+    if (B.sheets[type]) return B.sheets[type];
+    if (!bakeInit()) return null;
+    try {
+      const frames = [];
+      for (let i = 0; i < BAKE_N; i++) frames.push(bakeFrame(type, (i / BAKE_N) * Math.PI * 2));
+      // 빈 그림이면 실패로 보고 기존 스프라이트 사용
+      const c = frames[0].getContext('2d'), d = c.getImageData(0, 0, BAKE_S, BAKE_S).data;
+      let painted = 0; for (let i = 3; i < d.length; i += 16) if (d[i] > 8) painted++;
+      if (painted < 20) { B.sheets[type] = false; return null; }
+      return (B.sheets[type] = frames);
+    } catch (e) { B.ok = false; B.sheets[type] = false; return null; }
+  }
+  function drawSprite(c, x, y, a, s, type, alpha) {
+    const frames = spriteSheet(type); if (!frames) return false;
+    const two = Math.PI * 2; const ang = ((a % two) + two) % two;
+    const i = Math.round(ang / two * BAKE_N) % BAKE_N;
+    const baked = (i / BAKE_N) * two; const residual = ang - baked;
+    const L = 52 * s;
+    c.save(); c.translate(x, y); c.rotate(residual); c.globalAlpha = alpha == null ? 1 : alpha;
+    c.drawImage(frames[i], -L / 2, -L / 2, L, L);
+    c.restore(); return true;
+  }
   // 화면의 자리(host)에 3D 보기를 붙임 — 화면을 다시 그려도 같은 캔버스를 다시 붙여서 WebGL을 새로 만들지 않음
   G.Ship3D = {
     mount(host, type) { if (!host) return; initGL(); if (V.cv.parentNode !== host) host.appendChild(V.cv);
       if (type !== V.type) { V.type = type; if (V.ok) upload(type); V.zoom = 1; }
       host.classList.toggle('flat', !V.ok); if (!V.raf) { V.last = 0; V.raf = requestAnimationFrame(draw); } },
     info: () => ({ ok: V.ok, type: V.type, frames: V.frames, yaw: V.yaw, pitch: V.pitch, zoom: V.zoom, tris: V.type ? model(V.type).tris : 0, mounted: !!(V.cv && V.cv.isConnected) }),
-    model, KIND,
+    model, KIND, drawSprite, spriteSheet, BAKE_N,
   };
 })(typeof window !== 'undefined' ? window.G : globalThis.G);
